@@ -476,6 +476,71 @@ jobs:
        
 
       
+      - name: Enable continuous JARVIS conversation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          changes = [
+              (
+                  "import android.speech.tts.TextToSpeech",
+                  "import android.speech.tts.TextToSpeech\n          import android.speech.tts.UtteranceProgressListener"
+              ),
+              (
+                  "private var ttsReady = false",
+                  "private var ttsReady = false\n              private var conversationActive = false"
+              ),
+              (
+                  'if (granted) listenOnce()\n                  else statusText = "Microphone permission was not granted"',
+                  'if (granted) listenOnce()\n                  else {\n                      conversationActive = false\n                      statusText = "Microphone permission was not granted"\n                  }'
+              ),
+              (
+                  'private fun requestListen() {\n                  if (ContextCompat',
+                  'private fun requestListen() {\n                  conversationActive = true\n                  if (ContextCompat'
+              ),
+              (
+                  'statusText = "Speech recognition error ($error)"\n                          recognizer.destroy()',
+                  'statusText = "Speech recognition error ($error)"\n                          conversationActive = false\n                          recognizer.destroy()'
+              ),
+              (
+                  'val result = when {\n                      command.contains("hello")',
+                  'val stopRequested = command.contains("stop listening") || command.contains("stop listening jarvis")\n                  if (stopRequested) conversationActive = false\n\n                  val result = when {\n                      stopRequested -> "Conversation ended. Call me whenever you need me."\n                      command.contains("hello")'
+              ),
+              (
+                  'if (ttsReady) {\n                      tts?.language = Locale.getDefault()\n                      statusText = "Voice output ready · Wake word not yet installed"',
+                  '''if (ttsReady) {
+                      tts?.language = Locale.getDefault()
+                      tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                          override fun onStart(id: String?) {}
+                          override fun onDone(id: String?) {
+                              runOnUiThread {
+                                  if (conversationActive) listenOnce()
+                              }
+                          }
+                          override fun onError(id: String?) {}
+                      })
+                      statusText = "Voice output ready · Wake word not yet installed"'''
+              ),
+              (
+                  'override fun onDestroy() {\n                  tts?.stop()',
+                  'override fun onDestroy() {\n                  conversationActive = false\n                  tts?.stop()'
+              )
+          ]
+
+          for old, new in changes:
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit("Could not safely find a required code section: " + old[:65])
+              s = s.replace(old, new, 1)
+
+          path.write_text(s)
+          print("Continuous conversation enabled")
+          PY
+
       
       - name: Fix Android assistant registration
         run: |
