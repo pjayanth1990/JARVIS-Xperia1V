@@ -554,94 +554,76 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import os
-          import re
 
           path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
           source = path.read_text()
 
-          replacement = r'''              private fun handleLocalCommand(raw: String) {
-                  val command = raw.lowercase(Locale.ROOT)
-                  val stopRequested = command.contains("stop listening")
-                  if (stopRequested) conversationActive = false
+          start = source.find("private fun handleLocalCommand(raw: String) {")
+          end = source.find("private fun batteryPercent(): Int {", start)
+          if start < 0 or end < 0:
+              raise SystemExit("Could not locate command handler boundaries")
 
-                  val result = when {
-                      stopRequested ->
-                          "Conversation ended. Call me whenever you need me."
-                      command.contains("hello") || command.contains("hi jarvis") ->
-                          "Hello. I'm online and ready."
-                      command.contains("date") || command.contains("what day") || command.contains("today") ->
-                          "Today is ${
-                              java.text.SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
-                                  .format(java.util.Date())
-                          }."
-                      command.contains("time") ->
-                          "The current time is ${
-                              java.text.SimpleDateFormat("h:mm a", Locale.getDefault())
-                                  .format(java.util.Date())
-                          }."
-                      command.contains("wifi") || command.contains("wi-fi") -> {
-                          startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS))
-                          "Opening Wi-Fi settings."
-                      }
-                      command.contains("bluetooth") -> {
-                          startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
-                          "Opening Bluetooth settings."
-                      }
-                      command.contains("display settings") || command.contains("screen settings") -> {
-                          startActivity(Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS))
-                          "Opening display settings."
-                      }
-                      command.contains("volume up") || command.contains("increase volume") -> {
-                          val audio = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
-                          audio.adjustStreamVolume(
-                              android.media.AudioManager.STREAM_MUSIC,
-                              android.media.AudioManager.ADJUST_RAISE,
-                              android.media.AudioManager.FLAG_SHOW_UI
-                          )
-                          "Increasing media volume."
-                      }
-                      command.contains("volume down") || command.contains("decrease volume") -> {
-                          val audio = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
-                          audio.adjustStreamVolume(
-                              android.media.AudioManager.STREAM_MUSIC,
-                              android.media.AudioManager.ADJUST_LOWER,
-                              android.media.AudioManager.FLAG_SHOW_UI
-                          )
-                          "Decreasing media volume."
-                      }
-                      command.contains("open settings") -> {
-                          startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
-                          "Opening Android settings."
-                      }
-                      command.contains("open camera") -> {
-                          val camera = Intent("android.media.action.IMAGE_CAPTURE")
-                          if (camera.resolveActivity(packageManager) != null) startActivity(camera)
-                          "Opening camera."
-                      }
-                      command.contains("battery") ->
-                          "Your battery level is ${batteryPercent()} percent."
-                      else ->
-                          "I heard you. That command is not available offline yet."
+          replacement = """    private fun handleLocalCommand(raw: String) {
+              val command = raw.lowercase(Locale.ROOT)
+              val stopRequested = command.contains("stop listening")
+              if (stopRequested) conversationActive = false
+
+              val result = when {
+                  stopRequested ->
+                      "Conversation ended. Call me whenever you need me."
+                  command.contains("hello") || command.contains("hi jarvis") ->
+                      "Hello. I'm online and ready."
+                  command.contains("date") || command.contains("what day") || command.contains("today") ->
+                      "Today is ${java.text.SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(java.util.Date())}."
+                  command.contains("time") ->
+                      "The current time is ${java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(java.util.Date())}."
+                  command.contains("wifi") || command.contains("wi-fi") -> {
+                      startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS))
+                      "Opening Wi-Fi settings."
                   }
+                  command.contains("bluetooth") -> {
+                      startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+                      "Opening Bluetooth settings."
+                  }
+                  command.contains("display settings") || command.contains("screen settings") -> {
+                      startActivity(Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS))
+                      "Opening display settings."
+                  }
+                  command.contains("volume up") || command.contains("increase volume") -> {
+                      val audio = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+                      audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
+                      "Increasing media volume."
+                  }
+                  command.contains("volume down") || command.contains("decrease volume") -> {
+                      val audio = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+                      audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_LOWER, android.media.AudioManager.FLAG_SHOW_UI)
+                      "Decreasing media volume."
+                  }
+                  command.contains("open settings") -> {
+                      startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                      "Opening Android settings."
+                  }
+                  command.contains("open camera") -> {
+                      val camera = Intent("android.media.action.IMAGE_CAPTURE")
+                      if (camera.resolveActivity(packageManager) != null) startActivity(camera)
+                      "Opening camera."
+                  }
+                  command.contains("battery") ->
+                      "Your battery level is ${batteryPercent()} percent."
+                  else ->
+                      "I heard you. That command is not available offline yet."
+              }
 
-                  reply = result
-                  statusText = "Ready"
-                  speak(result)
-              }'''
+              reply = result
+              statusText = "Ready"
+              speak(result)
+          }
 
-          pattern = r'              private fun handleLocalCommand\(raw: String\) \{.*?\n              private fun batteryPercent\(\): Int \{'
-          updated, count = re.subn(
-              pattern,
-              replacement + "\n\n              private fun batteryPercent(): Int {",
-              source,
-              count=1,
-              flags=re.DOTALL
-          )
-          if count != 1:
-              raise SystemExit("Could not safely locate the existing offline command handler")
+          """
 
-          path.write_text(updated)
-          print("Offline commands expanded")
+          source = source[:start] + replacement + source[end:]
+          path.write_text(source)
+          print("Offline commands expanded successfully")
           PY
 
       - name: Fix Android assistant registration
