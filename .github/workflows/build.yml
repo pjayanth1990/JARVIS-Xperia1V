@@ -440,6 +440,7 @@ jobs:
           }
           KOTLIN
 
+      - 
       - name: Fix Android assistant registration
         run: |
           cat > "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'XML'
@@ -459,10 +460,17 @@ jobs:
                   <activity
                       android:name=".MainActivity"
                       android:exported="true">
+
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.ASSIST" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                      </intent-filter>
+
                   </activity>
 
                   <service
@@ -506,6 +514,7 @@ jobs:
               context: android.content.Context
           ) : VoiceInteractionSession(context)
           KOTLIN
+
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
