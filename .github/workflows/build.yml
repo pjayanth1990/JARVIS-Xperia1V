@@ -47,36 +47,398 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Found project: $PROJECT_DIR"
 
-      - name: Show JARVIS source files
+      - name: Rewrite JARVIS MainActivity
         run: |
-          echo "=== PROJECT FILES ==="
-          find "$PROJECT_DIR" -type f | sort
-          echo "=== ANDROID MANIFEST ==="
-          find "$PROJECT_DIR" -name AndroidManifest.xml -exec cat {} \;
-          echo "=== VOICE SERVICE REFERENCES ==="
-          grep -RniE "VoiceInteractionService|VoiceInteractionSessionService|ROLE_ASSISTANT|android.voice_interaction" "$PROJECT_DIR" || true
+          cat > "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/MainActivity.kt" <<'KOTLIN'
+          package com.jps.jarvis
 
-      - name: Show JARVIS assistant code
-        run: |
-          cd "$PROJECT_DIR"
+          import android.Manifest
+          import android.app.role.RoleManager
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.os.Bundle
+          import android.speech.RecognizerIntent
+          import android.speech.SpeechRecognizer
+          import android.speech.TextToSpeech
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Mic
+          import androidx.compose.material.icons.filled.SettingsVoice
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Brush
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.unit.dp
+          import androidx.core.content.ContextCompat
+          import java.util.Locale
 
-          echo "===== MAIN ACTIVITY ====="
-          cat app/src/main/java/com/jps/jarvis/MainActivity.kt
+          class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
+              private var tts: TextToSpeech? = null
+              private var ttsReady = false
+              private var selectedVoiceName by mutableStateOf("System default")
+              private var statusText by mutableStateOf("Systems ready")
+              private var lastHeard by mutableStateOf("Say a command using the microphone")
+              private var reply by mutableStateOf("At your service. JARVIS core is online.")
 
-          echo "===== VOICE INTERACTION SERVICE ====="
-          cat app/src/main/java/com/jps/jarvis/JarvisVoiceInteractionService.kt
+              private val permissionLauncher =
+                  registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                      if (granted) listenOnce()
+                      else statusText = "Microphone permission was not granted"
+                  }
 
-          echo "===== SESSION SERVICE ====="
-          cat app/src/main/java/com/jps/jarvis/JarvisVoiceInteractionSessionService.kt
+              private val assistantRoleLauncher =
+                  registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                      val roleManager = getSystemService(RoleManager::class.java)
+                      statusText = when {
+                          roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true ->
+                              "JARVIS is now selected as your default assistant"
+                          result.resultCode == RESULT_CANCELED ->
+                              "Assistant selection was cancelled or not approved"
+                          else ->
+                              "Assistant selection returned. Check Android default assistant settings."
+                      }
+                  }
 
-          echo "===== SESSION ====="
-          cat app/src/main/java/com/jps/jarvis/JarvisVoiceInteractionSession.kt
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  tts = TextToSpeech(this, this)
 
-          echo "===== VOICE XML ====="
-          cat app/src/main/res/xml/voice_interaction_service.xml
+                  setContent {
+                      JarvisScreen(
+                          status = statusText,
+                          heard = lastHeard,
+                          response = reply,
+                          voiceNames = availableVoiceNames(),
+                          selectedVoice = selectedVoiceName,
+                          onVoiceSelected = { selectVoice(it) },
+                          onListen = { requestListen() },
+                          onSetDefaultAssistant = { requestAssistantRole() },
+                          onSpeakTest = { speak("Voice system check. JARVIS is ready.") }
+                      )
+                  }
+              }
 
-          echo "===== APP GRADLE ====="
-          cat app/build.gradle.kts
+              override fun onInit(result: Int) {
+                  ttsReady = result == TextToSpeech.SUCCESS
+                  if (ttsReady) {
+                      tts?.language = Locale.getDefault()
+                      statusText = "Voice output ready · Wake word not yet installed"
+                  } else {
+                      statusText = "Text-to-speech unavailable"
+                  }
+              }
+
+              private fun availableVoiceNames(): List<String> =
+                  tts?.voices?.map { it.name }?.sorted() ?: emptyList()
+
+              private fun selectVoice(name: String) {
+                  val voice = tts?.voices?.firstOrNull { it.name == name }
+                  if (voice != null) {
+                      tts?.voice = voice
+                      selectedVoiceName = name
+                      speak("Voice preference updated.")
+                  }
+              }
+
+              private fun requestListen() {
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                      == PackageManager.PERMISSION_GRANTED) {
+                      listenOnce()
+                  } else {
+                      permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                  }
+              }
+
+              private fun listenOnce() {
+                  if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+                      statusText = "Speech recognition service is not available"
+                      return
+                  }
+
+                  val recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+                  statusText = "Listening…"
+
+                  val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                      putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                      putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                      putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                  }
+
+                  recognizer.setRecognitionListener(object : android.speech.RecognitionListener {
+                      override fun onReadyForSpeech(params: Bundle?) {}
+                      override fun onBeginningOfSpeech() {}
+                      override fun onRmsChanged(rmsdB: Float) {}
+                      override fun onBufferReceived(buffer: ByteArray?) {}
+                      override fun onEndOfSpeech() {
+                          statusText = "Processing command…"
+                      }
+                      override fun onError(error: Int) {
+                          statusText = "Speech recognition error ($error)"
+                          recognizer.destroy()
+                      }
+                      override fun onResults(results: Bundle?) {
+                          val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                              ?.firstOrNull().orEmpty()
+                          lastHeard = text.ifBlank { "No speech detected" }
+                          handleLocalCommand(text)
+                          recognizer.destroy()
+                      }
+                      override fun onPartialResults(partialResults: Bundle?) {}
+                      override fun onEvent(eventType: Int, params: Bundle?) {}
+                  })
+
+                  recognizer.startListening(intent)
+              }
+
+              private fun handleLocalCommand(raw: String) {
+                  val command = raw.lowercase(Locale.ROOT)
+
+                  val result = when {
+                      command.contains("hello") || command.contains("hi jarvis") ->
+                          "Hello. I'm online and ready."
+                      command.contains("time") ->
+                          "The current time is ${
+                              java.text.SimpleDateFormat("h:mm a", Locale.getDefault())
+                                  .format(java.util.Date())
+                          }."
+                      command.contains("open settings") -> {
+                          startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                          "Opening Android settings."
+                      }
+                      command.contains("open camera") -> {
+                          val camera = Intent("android.media.action.IMAGE_CAPTURE")
+                          if (camera.resolveActivity(packageManager) != null) startActivity(camera)
+                          "Opening camera."
+                      }
+                      command.contains("battery") ->
+                          "Your battery level is ${batteryPercent()} percent."
+                      else ->
+                          "I heard you. Advanced AI connection will be added in a later stage."
+                  }
+
+                  reply = result
+                  statusText = "Ready"
+                  speak(result)
+              }
+
+              private fun batteryPercent(): Int {
+                  val battery = registerReceiver(
+                      null,
+                      android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+                  )
+                  val level = battery?.getIntExtra("level", -1) ?: -1
+                  val scale = battery?.getIntExtra("scale", 100) ?: 100
+                  return if (level >= 0 && scale > 0) level * 100 / scale else 0
+              }
+
+              private fun speak(text: String) {
+                  if (ttsReady) {
+                      tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_reply")
+                  }
+              }
+
+              private fun requestAssistantRole() {
+                  val roleManager = getSystemService(RoleManager::class.java)
+
+                  if (roleManager == null) {
+                      statusText = "Android Role Manager is unavailable"
+                      return
+                  }
+
+                  try {
+                      if (!roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+                          statusText = "Android assistant role is not available on this device"
+                          return
+                      }
+
+                      if (roleManager.isRoleHeld(RoleManager.ROLE_ASSISTANT)) {
+                          statusText = "JARVIS is already the selected assistant"
+                          return
+                      }
+
+                      statusText = "Opening Android assistant selection…"
+                      val requestIntent =
+                          roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                      assistantRoleLauncher.launch(requestIntent)
+
+                  } catch (e: Exception) {
+                      statusText = "Could not open assistant selection: ${e.javaClass.simpleName}"
+                  }
+              }
+
+              override fun onDestroy() {
+                  tts?.stop()
+                  tts?.shutdown()
+                  super.onDestroy()
+              }
+          }
+
+          @Composable
+          private fun JarvisScreen(
+              status: String,
+              heard: String,
+              response: String,
+              voiceNames: List<String>,
+              selectedVoice: String,
+              onVoiceSelected: (String) -> Unit,
+              onListen: () -> Unit,
+              onSetDefaultAssistant: () -> Unit,
+              onSpeakTest: () -> Unit
+          ) {
+              val bg = Color(0xFF07111D)
+              val cyan = Color(0xFF56D9F2)
+              var expanded by remember { mutableStateOf(false) }
+
+              MaterialTheme(
+                  colorScheme = darkColorScheme(
+                      background = bg,
+                      surface = Color(0xFF101F2E),
+                      primary = cyan,
+                      onPrimary = Color(0xFF00131B),
+                      onBackground = Color(0xFFE6F7FF),
+                      onSurface = Color(0xFFE6F7FF)
+                  )
+              ) {
+                  Surface(modifier = Modifier.fillMaxSize(), color = bg) {
+                      LazyColumn(
+                          modifier = Modifier.fillMaxSize(),
+                          contentPadding = PaddingValues(20.dp),
+                          verticalArrangement = Arrangement.spacedBy(16.dp)
+                      ) {
+                          item {
+                              Column(
+                                  horizontalAlignment = Alignment.CenterHorizontally,
+                                  modifier = Modifier.fillMaxWidth()
+                              ) {
+                                  Text("J.A.R.V.I.S.", style = MaterialTheme.typography.headlineLarge, color = cyan)
+                                  Text("PERSONAL INTELLIGENCE SYSTEM", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
+                                  Spacer(Modifier.height(24.dp))
+                                  Box(
+                                      modifier = Modifier.size(190.dp).background(
+                                          Brush.radialGradient(
+                                              listOf(Color(0xFF174D69), Color(0xFF0A1C2A), bg)
+                                          ),
+                                          CircleShape
+                                      ),
+                                      contentAlignment = Alignment.Center
+                                  ) {
+                                      Icon(
+                                          Icons.Default.SettingsVoice,
+                                          contentDescription = "JARVIS",
+                                          tint = cyan,
+                                          modifier = Modifier.size(78.dp)
+                                      )
+                                  }
+                                  Spacer(Modifier.height(12.dp))
+                                  Text(status, color = cyan, style = MaterialTheme.typography.bodyMedium)
+                              }
+                          }
+
+                          item {
+                              Card(shape = RoundedCornerShape(18.dp)) {
+                                  Column(
+                                      Modifier.padding(16.dp),
+                                      verticalArrangement = Arrangement.spacedBy(8.dp)
+                                  ) {
+                                      Text("VOICE CONSOLE", color = cyan, style = MaterialTheme.typography.titleMedium)
+                                      Text("Heard: $heard")
+                                      Text("JARVIS: $response")
+                                      Button(onClick = onListen, modifier = Modifier.fillMaxWidth()) {
+                                          Icon(Icons.Default.Mic, contentDescription = null)
+                                          Spacer(Modifier.width(8.dp))
+                                          Text("TAP TO SPEAK")
+                                      }
+                                  }
+                              }
+                          }
+
+                          item {
+                              Card(shape = RoundedCornerShape(18.dp)) {
+                                  Column(
+                                      Modifier.padding(16.dp),
+                                      verticalArrangement = Arrangement.spacedBy(10.dp)
+                                  ) {
+                                      Text("VOICE PERSONALISATION", color = cyan, style = MaterialTheme.typography.titleMedium)
+                                      Text("Choose an installed Android text-to-speech voice.")
+                                      Box {
+                                          OutlinedButton(
+                                              onClick = { expanded = true },
+                                              modifier = Modifier.fillMaxWidth()
+                                          ) {
+                                              Text(
+                                                  if (selectedVoice == "System default")
+                                                      "System default voice" else selectedVoice
+                                              )
+                                          }
+
+                                          DropdownMenu(
+                                              expanded = expanded,
+                                              onDismissRequest = { expanded = false }
+                                          ) {
+                                              DropdownMenuItem(
+                                                  text = { Text("System default") },
+                                                  onClick = {
+                                                      expanded = false
+                                                  }
+                                              )
+                                              voiceNames.take(40).forEach { name ->
+                                                  DropdownMenuItem(
+                                                      text = { Text(name) },
+                                                      onClick = {
+                                                          expanded = false
+                                                          onVoiceSelected(name)
+                                                      }
+                                                  )
+                                              }
+                                          }
+                                      }
+
+                                      OutlinedButton(
+                                          onClick = onSpeakTest,
+                                          modifier = Modifier.fillMaxWidth()
+                                      ) {
+                                          Text("TEST VOICE")
+                                      }
+                                  }
+                              }
+                          }
+
+                          item {
+                              Card(shape = RoundedCornerShape(18.dp)) {
+                                  Column(
+                                      Modifier.padding(16.dp),
+                                      verticalArrangement = Arrangement.spacedBy(8.dp)
+                                  ) {
+                                      Text("ANDROID INTEGRATION", color = cyan, style = MaterialTheme.typography.titleMedium)
+                                      Text("Register JARVIS as the phone's default digital assistant.")
+                                      Button(
+                                          onClick = onSetDefaultAssistant,
+                                          modifier = Modifier.fillMaxWidth()
+                                      ) {
+                                          Text("SET AS DEFAULT ASSISTANT")
+                                      }
+                                      Text(
+                                          "Custom wake-word detection and background listening are not included yet.",
+                                          style = MaterialTheme.typography.bodySmall,
+                                          color = Color.LightGray
+                                      )
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          KOTLIN
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
