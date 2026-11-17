@@ -604,9 +604,18 @@ jobs:
                       "Opening Android settings."
                   }
                   command.contains("open camera") -> {
-                      val camera = Intent("android.media.action.IMAGE_CAPTURE")
-                      if (camera.resolveActivity(packageManager) != null) startActivity(camera)
-                      "Opening camera."
+                      try {
+                          val photoPro = packageManager.getLaunchIntentForPackage("com.sonymobile.photopro")
+                          val camera = photoPro ?: Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+                          if (photoPro != null || camera.resolveActivity(packageManager) != null) {
+                              startActivity(camera)
+                              "Opening Photography Pro."
+                          } else {
+                              "I could not find a camera app on this phone."
+                          }
+                      } catch (e: Exception) {
+                          "I could not open the camera app."
+                      }
                   }
                   command.contains("battery") ->
                       "Your battery level is ${batteryPercent()} percent."
@@ -630,6 +639,10 @@ jobs:
         run: |
           cat > "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'XML'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <queries>
+                  <package android:name="com.sonymobile.photopro" />
+              </queries>
 
               <uses-permission android:name="android.permission.RECORD_AUDIO" />
               <uses-permission android:name="android.permission.INTERNET" />
