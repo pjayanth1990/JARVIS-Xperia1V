@@ -56,6 +56,28 @@ jobs:
           echo "=== VOICE SERVICE REFERENCES ==="
           grep -RniE "VoiceInteractionService|VoiceInteractionSessionService|ROLE_ASSISTANT|android.voice_interaction" "$PROJECT_DIR" || true
 
+      - name: Show JARVIS assistant code
+        run: |
+          cd "$PROJECT_DIR"
+
+          echo "===== MAIN ACTIVITY ====="
+          cat app/src/main/java/com/jps/jarvis/MainActivity.kt
+
+          echo "===== VOICE INTERACTION SERVICE ====="
+          cat app/src/main/java/com/jps/jarvis/JarvisVoiceInteractionService.kt
+
+          echo "===== SESSION SERVICE ====="
+          cat app/src/main/java/com/jps/jarvis/JarvisVoiceInteractionSessionService.kt
+
+          echo "===== SESSION ====="
+          cat app/src/main/java/com/jps/jarvis/JarvisVoiceInteractionSession.kt
+
+          echo "===== VOICE XML ====="
+          cat app/src/main/res/xml/voice_interaction_service.xml
+
+          echo "===== APP GRADLE ====="
+          cat app/build.gradle.kts
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
