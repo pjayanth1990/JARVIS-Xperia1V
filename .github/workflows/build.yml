@@ -439,7 +439,39 @@ jobs:
               }
           }
           KOTLIN
+
           
+      - name: Enable automatic listening when assistant launches
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          source = path.read_text()
+
+          old = """              }
+
+              override fun onInit(result: Int) {"""
+
+          new = """                  if (intent?.action == Intent.ACTION_ASSIST) requestListen()
+              }
+
+              override fun onNewIntent(intent: Intent) {
+                  super.onNewIntent(intent)
+                  setIntent(intent)
+                  if (intent.action == Intent.ACTION_ASSIST) requestListen()
+              }
+
+              override fun onInit(result: Int) {"""
+
+          if source.count(old) != 1:
+              raise SystemExit("Could not safely locate MainActivity insertion point")
+
+          path.write_text(source.replace(old, new, 1))
+          print("Automatic assistant listening enabled")
+          PY
+
       
       
       - name: Fix Android assistant registration
