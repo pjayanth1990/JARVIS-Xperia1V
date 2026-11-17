@@ -439,8 +439,7 @@ jobs:
               }
           }
           KOTLIN
-
-      - 
+          
       - name: Fix Android assistant registration
         run: |
           cat > "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'XML'
