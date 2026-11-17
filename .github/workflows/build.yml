@@ -47,6 +47,15 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Found project: $PROJECT_DIR"
 
+      - name: Show JARVIS source files
+        run: |
+          echo "=== PROJECT FILES ==="
+          find "$PROJECT_DIR" -type f | sort
+          echo "=== ANDROID MANIFEST ==="
+          find "$PROJECT_DIR" -name AndroidManifest.xml -exec cat {} \;
+          echo "=== VOICE SERVICE REFERENCES ==="
+          grep -RniE "VoiceInteractionService|VoiceInteractionSessionService|ROLE_ASSISTANT|android.voice_interaction" "$PROJECT_DIR" || true
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
