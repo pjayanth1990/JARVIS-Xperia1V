@@ -13,7 +13,6 @@ permissions:
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -26,10 +25,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
       - name: Install Android SDK packages
         run: |
-          echo "Android SDK: $ANDROID_HOME"
-          yes | sdkmanager --licenses || true
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-36" \
@@ -52,12 +52,12 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Build JARVIS debug APK
+      - name: Build JARVIS APK
         run: |
           cd "$PROJECT_DIR"
           gradle assembleDebug
 
-      - name: Upload JARVIS APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-Xperia1V-APK
