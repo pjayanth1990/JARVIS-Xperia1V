@@ -440,14 +440,14 @@ jobs:
           }
           KOTLIN
           
+      
+      
       - name: Fix Android assistant registration
         run: |
           cat > "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'XML'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <uses-permission android:name="android.permission.RECORD_AUDIO" />
-              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
               <uses-permission android:name="android.permission.INTERNET" />
 
               <application
@@ -472,47 +472,9 @@ jobs:
 
                   </activity>
 
-                  <service
-                      android:name=".JarvisVoiceInteractionService"
-                      android:label="JARVIS Voice Assistant"
-                      android:permission="android.permission.BIND_VOICE_INTERACTION"
-                      android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.service.voice.VoiceInteractionService" />
-                      </intent-filter>
-                      <meta-data
-                          android:name="android.voice_interaction"
-                          android:resource="@xml/voice_interaction_service" />
-                  </service>
-
-                  <service
-                      android:name=".JarvisVoiceInteractionSessionService"
-                      android:label="JARVIS Assistant Session"
-                      android:permission="android.permission.BIND_VOICE_INTERACTION"
-                      android:exported="true" />
-
               </application>
           </manifest>
           XML
-
-          cat > "$PROJECT_DIR/app/src/main/res/xml/voice_interaction_service.xml" <<'XML'
-          <?xml version="1.0" encoding="utf-8"?>
-          <voice-interaction-service
-              xmlns:android="http://schemas.android.com/apk/res/android"
-              android:sessionService="com.jps.jarvis.JarvisVoiceInteractionSessionService"
-              android:supportsAssist="true"
-              android:supportsLaunchVoiceAssistFromKeyguard="true" />
-          XML
-
-          cat > "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/JarvisVoiceInteractionSession.kt" <<'KOTLIN'
-          package com.jps.jarvis
-
-          import android.service.voice.VoiceInteractionSession
-
-          class JarvisVoiceInteractionSession(
-              context: android.content.Context
-          ) : VoiceInteractionSession(context)
-          KOTLIN
 
 
       - name: Set up Gradle
