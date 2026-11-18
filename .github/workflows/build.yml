@@ -1160,6 +1160,59 @@ jobs:
           print("Wake-word service startup reinforced on app resume")
           PY
 
+      - name: Fix wake-word return to standby after each command
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          old = "private fun requestListen() {"
+          new = "private fun requestListen(fromWakeWord: Boolean = false) {"
+          if s.count(old) != 1:
+              raise SystemExit("Could not safely locate requestListen declaration")
+          s = s.replace(old, new, 1)
+
+          old = "conversationActive = true"
+          if s.count(old) != 1:
+              raise SystemExit("Could not safely locate conversation state assignment")
+          s = s.replace(old, "conversationActive = !fromWakeWord", 1)
+
+          old = "if (intent?.action == Intent.ACTION_ASSIST || intent?.action == WakeWordService.ACTION_WAKE_WORD) requestListen()"
+          new = """if (intent?.action == WakeWordService.ACTION_WAKE_WORD) requestListen(fromWakeWord = true)
+                  else if (intent?.action == Intent.ACTION_ASSIST) requestListen()"""
+          if s.count(old) != 1:
+              raise SystemExit("Could not safely locate onCreate wake-word dispatch")
+          s = s.replace(old, new, 1)
+
+          old = "if (intent.action == Intent.ACTION_ASSIST || intent.action == WakeWordService.ACTION_WAKE_WORD) requestListen()"
+          new = """if (intent.action == WakeWordService.ACTION_WAKE_WORD) requestListen(fromWakeWord = true)
+                  else if (intent.action == Intent.ACTION_ASSIST) requestListen()"""
+          if s.count(old) != 1:
+              raise SystemExit("Could not safely locate onNewIntent wake-word dispatch")
+          s = s.replace(old, new, 1)
+
+          old = """                          recognizer.destroy()
+                      }
+                      override fun onResults(results: Bundle?)"""
+          new = """                          recognizer.destroy()
+                          if (!conversationActive && !isFinishing) {
+                              android.os.Handler(mainLooper).postDelayed({
+                                  if (!conversationActive && !isFinishing) startWakeWordService()
+                              }, 700)
+                          }
+                      }
+                      override fun onResults(results: Bundle?)"""
+          if s.count(old) != 1:
+              raise SystemExit("Could not safely locate speech error recovery")
+          s = s.replace(old, new, 1)
+
+          path.write_text(s)
+          print("Wake-word command sessions now return to standby and recover after speech errors")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
