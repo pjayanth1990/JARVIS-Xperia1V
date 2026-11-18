@@ -766,6 +766,287 @@ jobs:
           XML
 
 
+      - name: Add on-device Hey JARVIS dependency
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, os
+
+          root = Path(os.environ["PROJECT_DIR"])
+          settings = next(iter(root.glob("settings.gradle.kts")), None) or next(iter(root.glob("settings.gradle")), None)
+          if settings is None:
+              raise SystemExit("Gradle settings file not found")
+          text = settings.read_text()
+          if "https://jitpack.io" not in text:
+              match = re.search(r"(dependencyResolutionManagement\s*\{[\s\S]*?repositories\s*\{)", text)
+              if not match:
+                  raise SystemExit("Could not safely locate dependency repositories in settings file")
+              text = text[:match.end()] + '\n            maven { url = uri("https://jitpack.io") }' + text[match.end():]
+              settings.write_text(text)
+
+          gradle = root / "app/build.gradle.kts"
+          if not gradle.exists():
+              gradle = root / "app/build.gradle"
+          if not gradle.exists():
+              raise SystemExit("App Gradle file not found")
+          text = gradle.read_text()
+          dependency = "com.github.msnilsen:openwakeword-android:b49f3ab14cf558ac0c2aef73a5e6c83da7a08558"
+          if dependency not in text:
+              if gradle.name.endswith(".kts"):
+                  line = '    implementation("' + dependency + '")\n'
+              else:
+                  line = "    implementation '" + dependency + "'\n"
+              match = re.search(r"dependencies\s*\{", text)
+              if not match:
+                  raise SystemExit("Could not safely locate app dependencies block")
+              text = text[:match.end()] + "\n" + line + text[match.end():]
+              gradle.write_text(text)
+          print("Added pinned on-device wake-word dependency")
+          PY
+
+      - name: Add Hey JARVIS foreground microphone service
+        run: |
+          mkdir -p "$PROJECT_DIR/app/src/main/java/com/jps/jarvis"
+          cat > "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/WakeWordService.kt" <<'KOTLIN'
+          package com.jps.jarvis
+
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Intent
+          import android.os.Build
+          import android.os.Handler
+          import android.os.IBinder
+          import android.os.Looper
+          import android.util.Log
+          import androidx.core.app.NotificationCompat
+          import com.openwakeword.OpenWakeWord
+
+          class WakeWordService : Service() {
+              companion object {
+                  const val ACTION_WAKE_WORD = "com.jps.jarvis.ACTION_WAKE_WORD"
+                  private const val CHANNEL_ID = "jarvis_wake_word"
+                  private const val NOTIFICATION_ID = 5021
+              }
+
+              private var detector: OpenWakeWord? = null
+              @Volatile private var detectionHandled = false
+
+              override fun onCreate() {
+                  super.onCreate()
+                  createNotificationChannel()
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  startForeground(NOTIFICATION_ID, makeNotification("Listening for Hey JARVIS"))
+                  if (detector == null) {
+                      detectionHandled = false
+                      try {
+                          detector = OpenWakeWord.Builder(applicationContext)
+                              .setModel(OpenWakeWord.BuiltInModel.HEY_JARVIS)
+                              .setThreshold(0.5f)
+                              .build()
+                          detector?.start {
+                              if (!detectionHandled) handleDetection()
+                          }
+                      } catch (e: Exception) {
+                          Log.e("JARVIS-WakeWord", "Could not start wake-word detector", e)
+                          stopSelf()
+                      }
+                  }
+                  return START_STICKY
+              }
+
+              private fun handleDetection() {
+                  if (detectionHandled) return
+                  detectionHandled = true
+                  Thread {
+                      try {
+                          detector?.stop()
+                      } catch (e: Exception) {
+                          Log.w("JARVIS-WakeWord", "Detector stop failed", e)
+                      }
+                      Handler(Looper.getMainLooper()).post {
+                          val manager = getSystemService(NotificationManager::class.java)
+                          manager.notify(NOTIFICATION_ID, makeNotification("Hey JARVIS detected — tap to speak"))
+                          val launch = Intent(this, MainActivity::class.java).apply {
+                              action = ACTION_WAKE_WORD
+                              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                          }
+                          try {
+                              startActivity(launch)
+                          } catch (e: Exception) {
+                              Log.w("JARVIS-WakeWord", "Activity launch deferred; use the notification", e)
+                          }
+                      }
+                  }.start()
+              }
+
+              private fun createNotificationChannel() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val channel = NotificationChannel(
+                          CHANNEL_ID,
+                          "JARVIS wake-word listening",
+                          NotificationManager.IMPORTANCE_LOW
+                      )
+                      getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+                  }
+              }
+
+              private fun makeNotification(message: String): Notification {
+                  val openApp = Intent(this, MainActivity::class.java).apply {
+                      action = ACTION_WAKE_WORD
+                      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                  }
+                  val pending = PendingIntent.getActivity(
+                      this, 5021, openApp,
+                      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                  )
+                  return NotificationCompat.Builder(this, CHANNEL_ID)
+                      .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                      .setContentTitle("JARVIS")
+                      .setContentText(message)
+                      .setContentIntent(pending)
+                      .setOngoing(true)
+                      .setOnlyAlertOnce(true)
+                      .setPriority(NotificationCompat.PRIORITY_LOW)
+                      .build()
+              }
+
+              override fun onDestroy() {
+                  try {
+                      detector?.release()
+                  } catch (e: Exception) {
+                      Log.w("JARVIS-WakeWord", "Detector release failed", e)
+                  }
+                  detector = null
+                  super.onDestroy()
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+          }
+          KOTLIN
+
+      - name: Connect wake-word service to JARVIS voice flow
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, re
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          # Permission result: distinguish first-time wake-word setup from manual speech.
+          old = """if (granted) listenOnce()
+                      else statusText = "Microphone permission was not granted""""
+          new = """if (granted) {
+                          if (permissionForWakeWord) {
+                              permissionForWakeWord = false
+                              startWakeWordService()
+                          } else {
+                              listenOnce()
+                          }
+                      } else statusText = "Microphone permission was not granted""""
+          if s.count(old) != 1:
+              raise SystemExit("Could not safely update microphone permission callback")
+          s = s.replace(old, new, 1)
+
+          # Track which action requested microphone permission.
+          anchor = "private var conversationActive = false"
+          if s.count(anchor) != 1:
+              raise SystemExit("Could not locate conversation state")
+          s = s.replace(anchor, anchor + "\n    private var permissionForWakeWord = false", 1)
+
+          # Add service startup helper before speech recognition.
+          anchor = "    private fun listenOnce() {"
+          helper = """    private fun startWakeWordService() {
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                      != PackageManager.PERMISSION_GRANTED) {
+                      permissionForWakeWord = true
+                      permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                      return
+                  }
+                  try {
+                      ContextCompat.startForegroundService(
+                          this,
+                          Intent(this, WakeWordService::class.java)
+                      )
+                      statusText = "Listening for Hey JARVIS"
+                  } catch (e: Exception) {
+                      statusText = "Wake-word service could not start: " + e.javaClass.simpleName
+                  }
+              }
+
+          """
+          if s.count(anchor) != 1:
+              raise SystemExit("Could not locate speech recognition method")
+          s = s.replace(anchor, helper + anchor, 1)
+
+          # Stop the detector before Android speech recognition takes microphone control.
+          anchor = "private fun requestListen() {"
+          if s.count(anchor) != 1:
+              raise SystemExit("Could not locate requestListen")
+          s = s.replace(anchor, anchor + "\n        stopService(Intent(this, WakeWordService::class.java))", 1)
+
+          # App launch starts wake-word standby; assistant and wake-word launches begin speech.
+          old = "if (intent?.action == Intent.ACTION_ASSIST) requestListen()"
+          new = """if (intent?.action == Intent.ACTION_ASSIST || intent?.action == WakeWordService.ACTION_WAKE_WORD) requestListen()
+                  else startWakeWordService()"""
+          if s.count(old) != 1:
+              raise SystemExit("Could not locate onCreate assistant launch hook")
+          s = s.replace(old, new, 1)
+
+          old = "if (intent.action == Intent.ACTION_ASSIST) requestListen()"
+          new = "if (intent.action == Intent.ACTION_ASSIST || intent.action == WakeWordService.ACTION_WAKE_WORD) requestListen()"
+          if s.count(old) != 1:
+              raise SystemExit("Could not locate onNewIntent assistant hook")
+          s = s.replace(old, new, 1)
+
+          # After the spoken end-of-conversation message, return to wake-word standby.
+          old = "if (conversationActive && !isFinishing) listenOnce()"
+          new = """if (!isFinishing) {
+                                      if (conversationActive) listenOnce()
+                                      else startWakeWordService()
+                                  }"""
+          if s.count(old) != 1:
+              raise SystemExit("Could not locate continuous conversation TTS callback")
+          s = s.replace(old, new, 1)
+
+          path.write_text(s)
+          print("Wake-word standby integrated with existing JARVIS conversation")
+          PY
+
+      - name: Register microphone foreground service
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/AndroidManifest.xml"
+          s = path.read_text()
+          for permission in [
+              '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+              '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />',
+              '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
+          ]:
+              if permission not in s:
+                  s = s.replace('    <uses-permission android:name="android.permission.INTERNET" />',
+                                '    <uses-permission android:name="android.permission.INTERNET" />\n' + permission, 1)
+          service = '''
+                  <service
+                      android:name=".WakeWordService"
+                      android:enabled="true"
+                      android:exported="false"
+                      android:foregroundServiceType="microphone" />
+          '''
+          if 'android:name=".WakeWordService"' not in s:
+              s = s.replace('            </application>', service + '\n            </application>', 1)
+          path.write_text(s)
+          print("Microphone foreground-service permissions and declaration added")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
