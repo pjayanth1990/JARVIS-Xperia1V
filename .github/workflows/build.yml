@@ -1234,6 +1234,43 @@ jobs:
           print("Wake-word command sessions now return to standby and recover after speech errors")
           PY
 
+      - name: Stabilise repeated speech recognition sessions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          old = """                          lastHeard = text.ifBlank { "No speech detected" }
+                          handleLocalCommand(text)
+                          recognizer.destroy()"""
+          new = """                          lastHeard = text.ifBlank { "No speech detected" }
+                          recognizer.destroy()
+                          handleLocalCommand(text)"""
+          if s.count(old) != 1:
+              raise SystemExit("Could not safely locate onResults recognizer cleanup order")
+          s = s.replace(old, new, 1)
+
+          old = """                                  if (!isFinishing) {
+                                      if (conversationActive) listenOnce()
+                                      else startWakeWordService()
+                                  }"""
+          new = """                                  android.os.Handler(mainLooper).postDelayed({
+                                      if (!isFinishing) {
+                                          if (conversationActive) listenOnce()
+                                          else startWakeWordService()
+                                      }
+                                  }, 700)"""
+          if s.count(old) != 1:
+              raise SystemExit("Could not safely locate the next-listen TTS callback")
+          s = s.replace(old, new, 1)
+
+          path.write_text(s)
+          print("Speech recognizer is released before command handling; next listen is delayed 700 ms")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
