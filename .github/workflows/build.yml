@@ -927,9 +927,14 @@ jobs:
                               addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                           }
                           try {
+                              val creatorOptions = android.app.ActivityOptions.makeBasic()
+                                  .setPendingIntentCreatorBackgroundActivityStartMode(
+                                      android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                                  )
                               val activityPendingIntent = PendingIntent.getActivity(
                                   this, 5022, launch,
-                                  PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                                  PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                                  creatorOptions.toBundle()
                               )
                               if (Build.VERSION.SDK_INT >= 34) {
                                   val options = android.app.ActivityOptions.makeBasic()
