@@ -664,7 +664,7 @@ jobs:
           source, count = re.subn(pattern, lambda _: replacement, source, count=1)
           if count != 1:
               raise SystemExit('Could not safely locate offline fallback')
-          insert_at = source.rfind('\\n}')
+          insert_at = source.rfind('\n}')
           if insert_at < 0:
               raise SystemExit('Could not safely locate MainActivity class closing brace')
           method = '''    private fun askJarvisAI(question: String) {
@@ -706,7 +706,7 @@ jobs:
               }.start()
           }
           '''
-          source = source[:insert_at] + '\\n' + method + source[insert_at:]
+          source = source[:insert_at] + '\n' + method + source[insert_at:]
           path.write_text(source)
           print('Cloudflare AI connection added; credentials were not printed.')
           PY
