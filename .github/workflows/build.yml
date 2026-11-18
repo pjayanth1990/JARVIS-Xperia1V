@@ -642,22 +642,28 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import json, os
+          import json, os, re
           root = Path(os.environ['PROJECT_DIR'])
           worker = os.environ.get('JARVIS_WORKER_URL', '').strip().rstrip('/')
           token = os.environ.get('JARVIS_CLIENT_TOKEN', '').strip()
           if not worker.startswith('https://') or not token:
               raise SystemExit('Missing or invalid JARVIS backend secrets')
           cfg = root / 'app/src/main/java/com/jps/jarvis/JarvisConfig.kt'
-          cfg.write_text('package com.jps.jarvis\n\nobject JarvisConfig {\n    const val WORKER_URL = ' + json.dumps(worker) + '\n    const val CLIENT_TOKEN = ' + json.dumps(token) + '\n}\n')
+          cfg.write_text('package com.jps.jarvis\\n\\nobject JarvisConfig {\\n    const val WORKER_URL = ' + json.dumps(worker) + '\\n    const val CLIENT_TOKEN = ' + json.dumps(token) + '\\n}\\n')
           path = root / 'app/src/main/java/com/jps/jarvis/MainActivity.kt'
           source = path.read_text()
           import_line = 'import java.util.Locale'
           if source.count(import_line) != 1:
               raise SystemExit('Could not safely locate Kotlin imports')
-          source = source.replace(import_line, import_line + '\nimport java.net.HttpURLConnection\nimport java.net.URL\nimport org.json.JSONArray\nimport org.json.JSONObject', 1)
-          import re
-          pattern = r'(?m)^\s*else\s*->\s*\n\s*"I heard you\. That command is not available offline yet\."\s*
+          source = source.replace(import_line, import_line + '\\nimport java.net.HttpURLConnection\\nimport java.net.URL\\nimport org.json.JSONArray\\nimport org.json.JSONObject', 1)
+          pattern = r'(?m)^\\s*else\\s*->\\s*\\n\\s*"I heard you\\. That command is not available offline yet\\."\\s*$'
+          replacement = '''                  else -> {
+                      askJarvisAI(raw)
+                      return
+                  }'''
+          source, count = re.subn(pattern, lambda _: replacement, source, count=1)
+          if count != 1:
+              raise SystemExit('Could not safely locate offline fallback')
           anchor = '    private fun batteryPercent(): Int {'
           method = '''    private fun askJarvisAI(question: String) {
               statusText = "Contacting JARVIS AI…"
