@@ -839,11 +839,17 @@ jobs:
 
               override fun onCreate() {
                   super.onCreate()
+                  getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putString("startup_stage", "service_created").apply()
                   createNotificationChannel()
               }
 
               override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putString("startup_stage", "on_start_command").apply()
                   startForeground(NOTIFICATION_ID, makeNotification("Checking microphone access…"))
+                  getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putString("startup_stage", "foreground_started").apply()
                   if (detector == null) {
                       detectionHandled = false
                       try {
@@ -1014,13 +1020,26 @@ jobs:
                       return
                   }
                   try {
+                      getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                          .putString("startup_stage", "start_requested").remove("startup_error").apply()
                       ContextCompat.startForegroundService(
                           this,
                           Intent(this, WakeWordService::class.java)
                       )
-                      statusText = "Listening for Hey JARVIS"
+                      statusText = "Starting Hey JARVIS service…"
+                      android.os.Handler(mainLooper).postDelayed({
+                          val prefs = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)
+                          val stage = prefs.getString("startup_stage", "service_not_created")
+                          val error = prefs.getString("startup_error", null)
+                          statusText = when {
+                              error != null -> "Wake-word startup failed: " + error
+                              stage == "foreground_started" -> "JARVIS wake-word service is active"
+                              stage == "on_start_command" -> "JARVIS service started; checking foreground mode"
+                              else -> "Service did not initialise: " + stage
+                          }
+                      }, 1500)
                   } catch (e: Exception) {
-                      statusText = "Wake-word service could not start: " + e.javaClass.simpleName
+                      statusText = "Wake-word service could not start: " + e.javaClass.simpleName + " — " + (e.message ?: "")
                   }
               }
 
@@ -1088,8 +1107,18 @@ jobs:
           '''
           if 'android:name=".WakeWordService"' not in s:
               s = s.replace('            </application>', service + '\n            </application>', 1)
+          if 'android:name=".WakeWordService"' not in s:
+              raise SystemExit("WakeWordService declaration was not inserted into AndroidManifest.xml")
+          required = [
+              "android.permission.FOREGROUND_SERVICE",
+              "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+              "android.permission.POST_NOTIFICATIONS"
+          ]
+          missing = [p for p in required if p not in s]
+          if missing:
+              raise SystemExit("Missing foreground-service permissions: " + ", ".join(missing))
           path.write_text(s)
-          print("Microphone foreground-service permissions and declaration added")
+          print("Verified microphone foreground-service declaration and permissions")
           PY
 
       - name: Ensure wake-word starts whenever JARVIS opens
