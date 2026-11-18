@@ -939,19 +939,19 @@ jobs:
           s = path.read_text()
 
           # Permission result: distinguish first-time wake-word setup from manual speech.
-          old = """if (granted) listenOnce()
-                      else statusText = "Microphone permission was not granted""""
-          new = """if (granted) {
+          pattern = r'if \\(granted\\) listenOnce\\(\\)\\s*else statusText = "Microphone permission was not granted"'
+          replacement = """if (granted) {
                           if (permissionForWakeWord) {
                               permissionForWakeWord = false
                               startWakeWordService()
                           } else {
                               listenOnce()
                           }
-                      } else statusText = "Microphone permission was not granted""""
-          if s.count(old) != 1:
+                      } else statusText = "Microphone permission was not granted"
+          """
+          s, count = re.subn(pattern, lambda _: replacement, s, count=1)
+          if count != 1:
               raise SystemExit("Could not safely update microphone permission callback")
-          s = s.replace(old, new, 1)
 
           # Track which action requested microphone permission.
           anchor = "private var conversationActive = false"
