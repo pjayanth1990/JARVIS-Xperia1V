@@ -939,7 +939,7 @@ jobs:
           s = path.read_text()
 
           # Permission result: distinguish first-time wake-word setup from manual speech.
-          pattern = r'if \\(granted\\) listenOnce\\(\\)\\s*else statusText = "Microphone permission was not granted"'
+          pattern = r'if \(granted\) listenOnce\(\)\s*else statusText = "Microphone permission was not granted"'
           replacement = """if (granted) {
                           if (permissionForWakeWord) {
                               permissionForWakeWord = false
