@@ -1194,16 +1194,22 @@ jobs:
               raise SystemExit("Could not safely locate onNewIntent wake-word dispatch")
           s = s.replace(old, new, 1)
 
-          import re
-          pattern = r'(override fun onError\\(error: Int\\) \\{[\\s\\S]*?recognizer\\.destroy\\(\\))'
-          recovery = """if (!conversationActive && !isFinishing) {
+          # Replace the complete onError callback by locating its Kotlin method boundaries.
+          callback_start = s.find("override fun onError(error: Int) {")
+          callback_end = s.find("override fun onResults(results: Bundle?) {", callback_start)
+          if callback_start < 0 or callback_end < 0:
+              raise SystemExit("Could not locate SpeechRecognizer callback boundaries")
+          error_callback = """override fun onError(error: Int) {
+                          statusText = "Speech recognition error ($error)"
+                          recognizer.destroy()
+                          if (!conversationActive && !isFinishing) {
                               android.os.Handler(mainLooper).postDelayed({
                                   if (!conversationActive && !isFinishing) startWakeWordService()
                               }, 700)
-                          }"""
-          s, count = re.subn(pattern, lambda m: m.group(1) + "\\n                          " + recovery, s, count=1)
-          if count != 1:
-              raise SystemExit("Could not safely locate the onError callback in SpeechRecognizer")
+                          }
+                      }
+                      """
+          s = s[:callback_start] + error_callback + s[callback_end:]
 
           path.write_text(s)
           print("Wake-word command sessions now return to standby and recover after speech errors")
