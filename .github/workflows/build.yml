@@ -1063,7 +1063,7 @@ jobs:
               1
           )
 
-          anchor = "              override fun onInit(result: Int) {"
+          anchor = "override fun onInit(result: Int) {"
           on_resume = """              override fun onResume() {
                   super.onResume()
                   if (intent?.action != Intent.ACTION_ASSIST &&
@@ -1072,7 +1072,7 @@ jobs:
                   }
               }
 
-          """
+              """
           if "override fun onResume()" not in s:
               if s.count(anchor) != 1:
                   raise SystemExit("Could not locate lifecycle insertion point")
