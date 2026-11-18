@@ -704,7 +704,7 @@ jobs:
                   }
               }.start()
           }
-
+          '''
           if source.count(anchor) != 1:
               raise SystemExit('Could not safely locate method insertion point')
           source = source.replace(anchor, method + anchor, 1)
