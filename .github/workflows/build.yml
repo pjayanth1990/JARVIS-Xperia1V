@@ -664,9 +664,9 @@ jobs:
           source, count = re.subn(pattern, lambda _: replacement, source, count=1)
           if count != 1:
               raise SystemExit('Could not safely locate offline fallback')
-          insert_at = source.rfind('\n}')
-          if insert_at < 0:
-              raise SystemExit('Could not safely locate MainActivity class closing brace')
+          anchor = '\n}\n\n@Composable\nprivate fun JarvisScreen('
+          if source.count(anchor) != 1:
+              raise SystemExit('Could not safely locate MainActivity class boundary')
           method = '''    private fun askJarvisAI(question: String) {
               statusText = "Contacting JARVIS AI…"
               Thread {
@@ -706,7 +706,7 @@ jobs:
               }.start()
           }
           '''
-          source = source[:insert_at] + '\n' + method + source[insert_at:]
+          source = source.replace(anchor, '\n' + method + '\n}\n\n@Composable\nprivate fun JarvisScreen(', 1)
           path.write_text(source)
           print('Cloudflare AI connection added; credentials were not printed.')
           PY
