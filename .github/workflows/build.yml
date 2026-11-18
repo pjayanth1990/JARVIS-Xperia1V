@@ -927,7 +927,21 @@ jobs:
                               addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                           }
                           try {
-                              startActivity(launch)
+                              val activityPendingIntent = PendingIntent.getActivity(
+                                  this, 5022, launch,
+                                  PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                              )
+                              if (Build.VERSION.SDK_INT >= 34) {
+                                  val options = android.app.ActivityOptions.makeBasic()
+                                      .setPendingIntentBackgroundActivityStartMode(
+                                          android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                                      )
+                                  activityPendingIntent.send(
+                                      this, 0, null, null, null, null, options.toBundle()
+                                  )
+                              } else {
+                                  activityPendingIntent.send()
+                              }
                           } catch (e: Exception) {
                               Log.w("JARVIS-WakeWord", "Activity launch deferred; use the notification", e)
                           }
