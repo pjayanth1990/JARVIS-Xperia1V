@@ -1197,7 +1197,7 @@ jobs:
           old = "conversationActive = true"
           if s.count(old) != 1:
               raise SystemExit("Could not safely locate conversation state assignment")
-          s = s.replace(old, "conversationActive = !fromWakeWord", 1)
+          s = s.replace(old, "conversationActive = true", 1)
 
           old = "if (intent?.action == Intent.ACTION_ASSIST || intent?.action == WakeWordService.ACTION_WAKE_WORD) requestListen()"
           new = """if (intent?.action == WakeWordService.ACTION_WAKE_WORD) requestListen(fromWakeWord = true)
