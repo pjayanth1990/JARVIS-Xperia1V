@@ -635,6 +635,83 @@ jobs:
           print("Offline commands expanded successfully")
           PY
 
+      - name: Connect JARVIS to Cloudflare AI backend
+        env:
+          JARVIS_WORKER_URL: ${{ secrets.JARVIS_WORKER_URL }}
+          JARVIS_CLIENT_TOKEN: ${{ secrets.JARVIS_CLIENT_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os
+          root = Path(os.environ['PROJECT_DIR'])
+          worker = os.environ.get('JARVIS_WORKER_URL', '').strip().rstrip('/')
+          token = os.environ.get('JARVIS_CLIENT_TOKEN', '').strip()
+          if not worker.startswith('https://') or not token:
+              raise SystemExit('Missing or invalid JARVIS backend secrets')
+          cfg = root / 'app/src/main/java/com/jps/jarvis/JarvisConfig.kt'
+          cfg.write_text('package com.jps.jarvis\n\nobject JarvisConfig {\n    const val WORKER_URL = ' + json.dumps(worker) + '\n    const val CLIENT_TOKEN = ' + json.dumps(token) + '\n}\n')
+          path = root / 'app/src/main/java/com/jps/jarvis/MainActivity.kt'
+          source = path.read_text()
+          import_line = 'import java.util.Locale'
+          if source.count(import_line) != 1:
+              raise SystemExit('Could not safely locate Kotlin imports')
+          source = source.replace(import_line, import_line + '\nimport java.net.HttpURLConnection\nimport java.net.URL\nimport org.json.JSONArray\nimport org.json.JSONObject', 1)
+          old = '''                  else ->
+                      "I heard you. That command is not available offline yet."'''
+          new = '''                  else -> {
+                      askJarvisAI(raw)
+                      return
+                  }'''
+          if source.count(old) != 1:
+              raise SystemExit('Could not safely locate offline fallback')
+          source = source.replace(old, new, 1)
+          anchor = '    private fun batteryPercent(): Int {'
+          method = '''    private fun askJarvisAI(question: String) {
+              statusText = "Contacting JARVIS AI…"
+              Thread {
+                  var answer = "I could not connect to my AI service. Check your internet connection."
+                  var connection: HttpURLConnection? = null
+                  try {
+                      connection = (URL(JarvisConfig.WORKER_URL + "/chat").openConnection() as HttpURLConnection).apply {
+                          requestMethod = "POST"
+                          connectTimeout = 15000
+                          readTimeout = 30000
+                          doOutput = true
+                          setRequestProperty("Authorization", "Bearer " + JarvisConfig.CLIENT_TOKEN)
+                          setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                      }
+                      val messages = JSONArray().put(JSONObject().put("role", "user").put("content", question))
+                      val payload = JSONObject().put("messages", messages).toString()
+                      connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                      val code = connection.responseCode
+                      val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                      val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                      val data = JSONObject(body)
+                      answer = if (code in 200..299) {
+                          data.optString("reply").ifBlank { "JARVIS received an empty AI response." }
+                      } else {
+                          "AI service error. HTTP " + code + ". " + data.optString("error", "Please try again.")
+                      }
+                  } catch (e: Exception) {
+                      answer = "I could not reach the JARVIS AI service. Please check your connection and try again."
+                  } finally {
+                      connection?.disconnect()
+                  }
+                  runOnUiThread {
+                      reply = answer
+                      statusText = "Ready"
+                      speak(answer)
+                  }
+              }.start()
+          }
+
+'''
+          if source.count(anchor) != 1:
+              raise SystemExit('Could not safely locate method insertion point')
+          source = source.replace(anchor, method + anchor, 1)
+          path.write_text(source)
+          print('Cloudflare AI connection added; credentials were not printed.')
+          PY
       - name: Fix Android assistant registration
         run: |
           cat > "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'XML'
