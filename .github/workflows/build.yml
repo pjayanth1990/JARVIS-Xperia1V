@@ -1047,6 +1047,41 @@ jobs:
           print("Microphone foreground-service permissions and declaration added")
           PY
 
+      - name: Ensure wake-word starts whenever JARVIS opens
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ["PROJECT_DIR"])
+          main = root / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = main.read_text()
+
+          s = s.replace(
+              'statusText = "Voice output ready · Wake word not yet installed"',
+              'statusText = "Voice output ready"',
+              1
+          )
+
+          anchor = "              override fun onInit(result: Int) {"
+          on_resume = """              override fun onResume() {
+                  super.onResume()
+                  if (intent?.action != Intent.ACTION_ASSIST &&
+                      intent?.action != WakeWordService.ACTION_WAKE_WORD) {
+                      startWakeWordService()
+                  }
+              }
+
+          """
+          if "override fun onResume()" not in s:
+              if s.count(anchor) != 1:
+                  raise SystemExit("Could not locate lifecycle insertion point")
+              s = s.replace(anchor, on_resume + anchor, 1)
+
+          main.write_text(s)
+          print("Wake-word service startup reinforced on app resume")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
