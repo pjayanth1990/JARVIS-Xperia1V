@@ -851,9 +851,13 @@ jobs:
                           detector?.start {
                               if (!detectionHandled) handleDetection()
                           }
-                      } catch (e: Exception) {
+                      } catch (e: Throwable) {
                           Log.e("JARVIS-WakeWord", "Could not start wake-word detector", e)
-                          stopSelf()
+                          val detail = e.javaClass.simpleName + ": " + (e.message ?: "no details")
+                          getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)
+                              .edit().putString("startup_error", detail).apply()
+                          val manager = getSystemService(NotificationManager::class.java)
+                          manager.notify(NOTIFICATION_ID, makeNotification("Wake-word error: " + e.javaClass.simpleName))
                       }
                   }
                   return START_STICKY
