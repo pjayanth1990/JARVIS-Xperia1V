@@ -1107,7 +1107,12 @@ jobs:
                       android:foregroundServiceType="microphone" />
           '''
           if 'android:name=".WakeWordService"' not in s:
-              updated, count = re.subn(r'(?m)^\s*</application>\s*
+              updated, count = re.subn(r'</application>', service + chr(10) + '    </application>', s, count=1)
+              if count != 1:
+                  raise SystemExit("Could not locate the application closing tag in AndroidManifest.xml")
+              s = updated
+          if 'android:name=".WakeWordService"' not in s:
+              raise SystemExit("WakeWordService declaration was not inserted into AndroidManifest.xml")
           required = [
               "android.permission.FOREGROUND_SERVICE",
               "android.permission.FOREGROUND_SERVICE_MICROPHONE",
