@@ -29,7 +29,7 @@ jobs:
             from = [e.line - 4, 0].max
             puts lines[from, 8].each_with_index.map { |line, i| "#{from + i + 1}: #{line}" }
             begin
-              YAML.parse(s.sub(/^on:/, "'on':"))
+              YAML.parse(s.sub(/^on:/m, "'on':"))
               puts "Quoting top-level on: makes YAML parse successfully"
             rescue Psych::SyntaxError => e2
               puts "Quoting on did not fix it: #{e2.message}"
