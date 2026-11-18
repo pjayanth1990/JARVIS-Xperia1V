@@ -24,9 +24,9 @@ jobs:
             puts 'YAML syntax is valid'
           rescue Psych::SyntaxError => e
             puts e.message
-            puts "problem=#{e.problem} context=#{e.context} line=#{e.line} column=#{e.column}"
+            puts "problem=#{e.problem} context=#{e.context} context_line=#{e.line} context_column=#{e.column} problem_line=#{e.problem_mark.line + 1} problem_column=#{e.problem_mark.column + 1}"
             lines = s.lines
-            from = [e.line - 4, 0].max
+            from = [e.problem_mark.line - 4, 0].max
             puts lines[from, 8].each_with_index.map { |line, i| "#{from + i + 1}: #{line}" }
             begin
               YAML.parse(s.sub(/^on:/m, "'on':"))
