@@ -1195,15 +1195,13 @@ jobs:
           s = s.replace(old, new, 1)
 
           import re
-          pattern = r'(override fun onError\\(error: Int\\) \\{\\s*statusText = "Speech recognition error \\(\\$error\\)"\\s*)recognizer\\.destroy\\(\\)(\\s*\\})'
-          def recover(match):
-              return (match.group(1) + """recognizer.destroy()
-                          if (!conversationActive && !isFinishing) {
+          pattern = r'(override fun onError\\(error: Int\\) \\{[\\s\\S]*?recognizer\\.destroy\\(\\))'
+          recovery = """if (!conversationActive && !isFinishing) {
                               android.os.Handler(mainLooper).postDelayed({
                                   if (!conversationActive && !isFinishing) startWakeWordService()
                               }, 700)
-                          }""" + match.group(2))
-          s, count = re.subn(pattern, recover, s, count=1)
+                          }"""
+          s, count = re.subn(pattern, lambda m: m.group(1) + "\\n                          " + recovery, s, count=1)
           if count != 1:
               raise SystemExit("Could not safely locate the onError callback in SpeechRecognizer")
 
