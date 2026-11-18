@@ -1,0 +1,19 @@
+name: Validate build workflow syntax
+
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-workflow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Parse build workflow YAML
+        run: |
+          ruby -e 'require "yaml"; YAML.parse_file(".github/workflows/build.yml"); puts "YAML syntax is valid"'
