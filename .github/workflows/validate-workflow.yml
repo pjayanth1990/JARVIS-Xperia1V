@@ -17,3 +17,4 @@ jobs:
       - name: Parse build workflow YAML
         run: |
           ruby -e 'require "yaml"; YAML.parse_file(".github/workflows/build.yml"); puts "YAML syntax is valid"'
+
