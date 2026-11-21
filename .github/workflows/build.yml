@@ -1239,34 +1239,34 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import os
-          import re
 
           path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
           s = path.read_text()
 
-          # Release the completed recognizer before processing the command.
-          s, count = re.subn(
-              r'(?m)^(\\s*)handleLocalCommand\\(text\\)\\n\\s*recognizer\\.destroy\\(\\)',
-              lambda m: m.group(1) + "recognizer.destroy()\\n" + m.group(1) + "handleLocalCommand(text)",
-              s,
-              count=1
-          )
-          if count != 1:
-              raise SystemExit("Could not locate onResults recognizer cleanup order")
+          # Locate onResults and move recognizer cleanup before command handling.
+          start = s.find("override fun onResults(results: Bundle?) {")
+          if start < 0:
+              raise SystemExit("Could not locate onResults callback")
+          end = s.find("override fun ", start + 20)
+          if end < 0:
+              end = len(s)
+          block = s[start:end]
+          handle = "handleLocalCommand(text)"
+          destroy = "recognizer.destroy()"
+          if handle not in block or destroy not in block:
+              raise SystemExit("onResults callback does not contain expected command/cleanup calls")
+          block = block.replace(handle, "__JARVIS_HANDLE__", 1).replace(destroy, handle, 1).replace("__JARVIS_HANDLE__", destroy, 1)
+          s = s[:start] + block + s[end:]
 
-          # Give Android's speech service a short settling period before a new session.
-          pattern = r'(?m)^(\\s*)if \\(conversationActive\\) listenOnce\\(\\)$'
-          s, count = re.subn(
-              pattern,
-              lambda m: m.group(1) + 'android.os.Handler(mainLooper).postDelayed({ if (!isFinishing && conversationActive) listenOnce() }, 700)',
-              s,
-              count=1
-          )
-          if count != 1:
-              raise SystemExit("Could not locate the next-listen conversation callback")
+          # Delay the next listening session after TTS finishes.
+          target = "if (conversationActive) listenOnce()"
+          delayed = "android.os.Handler(mainLooper).postDelayed({ if (!isFinishing && conversationActive) listenOnce() }, 700)"
+          if target not in s:
+              raise SystemExit("Could not locate conversation restart callback")
+          s = s.replace(target, delayed, 1)
 
           path.write_text(s)
-          print("Recognizer cleanup order and delayed conversation restart applied")
+          print("Recognizer cleanup and delayed restart applied")
           PY
 
       - name: Set up Gradle
