@@ -1274,6 +1274,11 @@ jobs:
         with:
           gradle-version: '8.13'
 
+      - name: Print generated MainActivity before compilation
+        run: |
+          echo "---- GENERATED MainActivity.kt lines 110-125 ----"
+          nl -ba "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/MainActivity.kt" | sed -n '110,125p'
+
       - name: Build JARVIS APK
         run: |
           cd "$PROJECT_DIR"
