@@ -1260,7 +1260,7 @@ jobs:
 
           # Delay the next listening session after TTS finishes.
           target = "if (conversationActive) listenOnce()"
-          delayed = "android.os.Handler(mainLooper).postDelayed({ if (!isFinishing && conversationActive) listenOnce() }, 700)"
+          delayed = "if (conversationActive) { android.os.Handler(mainLooper).postDelayed({ if (!isFinishing && conversationActive) listenOnce() }, 700) }"
           if target not in s:
               raise SystemExit("Could not locate conversation restart callback")
           s = s.replace(target, delayed, 1)
