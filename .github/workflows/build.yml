@@ -1547,6 +1547,146 @@ jobs:
           print("Added persistent conversation history, copy response, and image save controls")
           PY
 
+      - name: Add explicit microphone privacy controls
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ["PROJECT_DIR"])
+          main = root / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = main.read_text()
+
+          def once(old, new, label):
+              global s
+              if s.count(old) != 1:
+                  raise SystemExit("Could not safely update " + label + " (matches=" + str(s.count(old)) + ")")
+              s = s.replace(old, new, 1)
+
+          # Wake-word listening is opt-in and remembered across app launches.
+          once("private var conversationActive = false",
+               "private var conversationActive = false\n    private var wakeWordEnabled by mutableStateOf(false)\n    private var activeRecognizer: SpeechRecognizer? = null",
+               "privacy state")
+          once("loadHistory()",
+               'loadHistory()\n                  wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)',
+               "privacy preference loading")
+
+          once("response = reply,",
+               "response = reply,\n                          wakeWordEnabled = wakeWordEnabled,\n                          onWakeWordToggle = { setWakeWordEnabled(it) },",
+               "privacy screen arguments")
+          once("response: String,",
+               "response: String,\n    wakeWordEnabled: Boolean,\n    onWakeWordToggle: (Boolean) -> Unit,",
+               "privacy screen parameters")
+
+          # Do not start the background detector unless the user explicitly enabled it.
+          once("private fun startWakeWordService() {",
+               """private fun startWakeWordService() {
+                  if (!getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)) {
+                      statusText = "Privacy Mode · microphone off"
+                      return
+                  }""",
+               "wake-word startup privacy guard")
+
+          # Persist the switch and immediately stop any active recording when disabled.
+          anchor = "    private fun startWakeWordService() {"
+          method = """    private fun setWakeWordEnabled(enabled: Boolean) {
+                  wakeWordEnabled = enabled
+                  getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putBoolean("enabled", enabled).apply()
+                  if (enabled) {
+                      statusText = "Wake-word listening enabled"
+                      startWakeWordService()
+                  } else {
+                      permissionForWakeWord = false
+                      conversationActive = false
+                      activeRecognizer?.let {
+                          try { it.cancel() } catch (_: Exception) {}
+                          try { it.destroy() } catch (_: Exception) {}
+                      }
+                      activeRecognizer = null
+                      stopService(Intent(this, WakeWordService::class.java))
+                      statusText = "Privacy Mode · microphone off"
+                  }
+              }
+
+          """
+          once(anchor, method + anchor, "privacy toggle handler")
+
+          # Hold the recognizer reference so Privacy Mode can stop an in-progress session.
+          once("val recognizer = SpeechRecognizer.createSpeechRecognizer(this)",
+               "val recognizer = SpeechRecognizer.createSpeechRecognizer(this)\n                  activeRecognizer = recognizer",
+               "active recognizer tracking")
+          once("recognizer.destroy()\n                      }\n                      override fun onResults",
+               "recognizer.destroy()\n                          if (activeRecognizer === recognizer) activeRecognizer = null\n                      }\n                      override fun onResults",
+               "recognizer error cleanup")
+          once("recognizer.destroy()\n                      }\n                      override fun onPartialResults",
+               "recognizer.destroy()\n                          if (activeRecognizer === recognizer) activeRecognizer = null\n                      }\n                      override fun onPartialResults",
+               "recognizer result cleanup")
+
+          # App resume must not silently re-enable the microphone.
+          old = """if (intent?.action != Intent.ACTION_ASSIST &&
+                      intent?.action != WakeWordService.ACTION_WAKE_WORD) {
+                      startWakeWordService()
+                  }"""
+          new = """if (wakeWordEnabled && !conversationActive &&
+                      intent?.action != Intent.ACTION_ASSIST &&
+                      intent?.action != WakeWordService.ACTION_WAKE_WORD) {
+                      startWakeWordService()
+                  }"""
+          once(old, new, "resume privacy guard")
+
+          # Show a persistent, explicit microphone control in the voice console.
+          once("response: String,\n    wakeWordEnabled: Boolean,",
+               "response: String,\n    wakeWordEnabled: Boolean,",
+               "privacy UI parameter validation")
+          display = 'Text("JARVIS: $response")'
+          privacy_ui = display + """
+                                      Row(
+                                          modifier = Modifier.fillMaxWidth(),
+                                          verticalAlignment = Alignment.CenterVertically,
+                                          horizontalArrangement = Arrangement.SpaceBetween
+                                      ) {
+                                          Column(Modifier.weight(1f)) {
+                                              Text(if (wakeWordEnabled) "WAKE-WORD LISTENING ON" else "PRIVACY MODE · MIC OFF",
+                                                  color = if (wakeWordEnabled) cyan else Color(0xFF8FE3A1))
+                                              Text(
+                                                  if (wakeWordEnabled) "On-device wake phrase detection is enabled."
+                                                  else "Wake-word microphone is off. Tap to speak works only when requested.",
+                                                  style = MaterialTheme.typography.bodySmall,
+                                                  color = Color.LightGray
+                                              )
+                                          }
+                                          Switch(checked = wakeWordEnabled, onCheckedChange = onWakeWordToggle)
+                                      }"""
+          once(display, privacy_ui, "privacy switch UI")
+
+          # Make the initial status match the saved setting.
+          once('statusText = "Voice output ready"',
+               'statusText = if (wakeWordEnabled) "Voice output ready · wake-word standby" else "Voice output ready · microphone off"',
+               "privacy status text")
+
+          main.write_text(s)
+
+          # Service itself also refuses to restart when the saved setting is OFF.
+          service = root / "app/src/main/java/com/jps/jarvis/WakeWordService.kt"
+          w = service.read_text()
+          old = """getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putString("startup_stage", "on_start_command").apply()
+                  startForeground(NOTIFICATION_ID, makeNotification("Checking microphone access…"))"""
+          new = """getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putString("startup_stage", "on_start_command").apply()
+                  if (!getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)) {
+                      stopSelf()
+                      return START_NOT_STICKY
+                  }
+                  startForeground(NOTIFICATION_ID, makeNotification("Wake-word standby active · on-device detection"))"""
+          if w.count(old) != 1:
+              raise SystemExit("Could not safely add service-side privacy guard")
+          w = w.replace(old, new, 1)
+          service.write_text(w)
+          print("Added opt-in wake-word listening, persistent Privacy Mode, and immediate microphone shutdown")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
