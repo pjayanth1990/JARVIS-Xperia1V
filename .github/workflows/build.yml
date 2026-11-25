@@ -1575,7 +1575,7 @@ jobs:
           s = s[:m.start()] + line + '\n' + m.group(1) + 'wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)' + s[m.end():]
 
           once("response = reply,",
-               "response = reply,\n                          wakeWordEnabled = wakeWordEnabled,\n                          onWakeWordToggle = { setWakeWordEnabled(it) },",
+               "response = reply,\n                          wakeWordEnabled = wakeWordEnabled,\n                          onWakeWordToggle = { updateWakeWordSetting(it) },",
                "privacy screen arguments")
           once("response: String,",
                "response: String,\n    wakeWordEnabled: Boolean,\n    onWakeWordToggle: (Boolean) -> Unit,",
@@ -1592,7 +1592,7 @@ jobs:
 
           # Persist the switch and immediately stop any active recording when disabled.
           anchor = "    private fun startWakeWordService() {"
-          method = """    private fun setWakeWordEnabled(enabled: Boolean) {
+          method = """    private fun updateWakeWordSetting(enabled: Boolean) {
                   wakeWordEnabled = enabled
                   getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
                       .putBoolean("enabled", enabled).apply()
