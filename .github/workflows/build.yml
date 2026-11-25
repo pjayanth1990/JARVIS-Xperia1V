@@ -1306,9 +1306,10 @@ jobs:
           if s.count(command_anchor) != 1:
               raise SystemExit("Could not locate command parser")
           image_dispatch = """val command = raw.lowercase(Locale.ROOT)
-                  if (listOf("generate image", "create image", "draw an image", "draw a picture",
-                      "make an image", "generate a picture", "create a picture",
-                      "generate a photo", "create a photo").any { command.contains(it) }) {
+                  if (listOf("generate image", "generate an image", "create image", "create an image",
+                      "make an image", "make me an image", "create me an image", "generate me an image",
+                      "draw an image", "draw a picture", "make a picture", "generate a picture",
+                      "create a picture", "generate a photo", "create a photo").any { command.contains(it) }) {
                       askJarvisImage(raw)
                       return
                   }"""
