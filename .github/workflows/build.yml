@@ -1414,9 +1414,9 @@ jobs:
 
       - name: Sign APK with permanent JARVIS key
         env:
-          JARVIS_KEYSTORE_BASE64: \${{ secrets.JARVIS_KEYSTORE_BASE64 }}
-          JARVIS_STORE_PASSWORD: \${{ secrets.JARVIS_STORE_PASSWORD }}
-          JARVIS_KEY_PASSWORD: \${{ secrets.JARVIS_KEY_PASSWORD }}
+          JARVIS_KEYSTORE_BASE64: ${{ secrets.JARVIS_KEYSTORE_BASE64 }}
+          JARVIS_STORE_PASSWORD: ${{ secrets.JARVIS_STORE_PASSWORD }}
+          JARVIS_KEY_PASSWORD: ${{ secrets.JARVIS_KEY_PASSWORD }}
         run: |
           set -e
           umask 077
