@@ -1441,13 +1441,15 @@ jobs:
           indent = oncreate_match.group(1)
           s = s[:oncreate_match.end()] + "\n" + indent + "loadHistory()" + s[oncreate_match.end():]
 
-          response_arg = "                          response = reply,"
-          if s.count(response_arg) != 1:
+          response_match = re.search(r"(?m)^(\s*)response = reply,$", s)
+          if not response_match:
               raise SystemExit("Could not locate response argument in JarvisScreen")
-          s = s.replace(response_arg, response_arg + """
-                          historyItems = historyItems,
-                          onCopyResponse = { copyResponse() },
-                          onSaveImage = { saveGeneratedImage() },""", 1)
+          response_indent = response_match.group(1)
+          response_insert = response_match.group(0) + """
+          """ + response_indent + """historyItems = historyItems,
+          """ + response_indent + """onCopyResponse = { copyResponse() },
+          """ + response_indent + """onSaveImage = { saveGeneratedImage() },"""
+          s = s[:response_match.start()] + response_insert + s[response_match.end():]
 
           local_anchor = "                  reply = result"
           if s.count(local_anchor) != 1:
