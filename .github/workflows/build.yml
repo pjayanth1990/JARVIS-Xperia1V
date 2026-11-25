@@ -1269,6 +1269,145 @@ jobs:
           print("Recognizer cleanup and delayed restart applied")
           PY
 
+      - name: Add JARVIS image generation support
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          imports = [
+              "import android.graphics.BitmapFactory",
+              "import android.util.Base64",
+              "import androidx.compose.foundation.Image",
+              "import androidx.compose.ui.graphics.asImageBitmap",
+              "import androidx.compose.ui.layout.ContentScale"
+          ]
+          anchor = "import java.util.Locale"
+          if s.count(anchor) != 1:
+              raise SystemExit("Could not locate Kotlin import anchor")
+          s = s.replace(anchor, anchor + "\\n" + "\\n".join(imports), 1)
+
+          state_anchor = 'private var reply by mutableStateOf("At your service. JARVIS core is online.")'
+          if s.count(state_anchor) != 1:
+              raise SystemExit("Could not locate JARVIS reply state")
+          s = s.replace(state_anchor, state_anchor + "\\n    private var generatedImage by mutableStateOf<android.graphics.Bitmap?>(null)", 1)
+
+          # Route explicit image requests to the image endpoint before local/text handling.
+          command_anchor = "val command = raw.lowercase(Locale.ROOT)"
+          if s.count(command_anchor) != 1:
+              raise SystemExit("Could not locate command parser")
+          image_dispatch = """val command = raw.lowercase(Locale.ROOT)
+                  if (
+                      command.contains("generate image") ||
+                      command.contains("create image") ||
+                      command.contains("draw an image") ||
+                      command.contains("draw a picture") ||
+                      command.contains("make an image") ||
+                      command.contains("generate a picture") ||
+                      command.contains("create a picture") ||
+                      command.contains("generate a photo") ||
+                      command.contains("create a photo")
+                  ) {
+                      askJarvisImage(raw)
+                      return
+                  }"""
+          s = s.replace(command_anchor, image_dispatch, 1)
+
+          # Add image-generation network method inside MainActivity.
+          class_anchor = "\\n}\\n\\n@Composable\\nprivate fun JarvisScreen("
+          if s.count(class_anchor) != 1:
+              raise SystemExit("Could not locate MainActivity class boundary")
+          method = r"""
+              private fun askJarvisImage(prompt: String) {
+                  statusText = "Creating your image…"
+                  reply = "JARVIS is generating your image. This may take a little while."
+                  speak("Creating your image. Please wait.")
+                  Thread {
+                      var connection: HttpURLConnection? = null
+                      var message = "Image generation failed. Please try again."
+                      var bitmap: android.graphics.Bitmap? = null
+                      try {
+                          connection = (URL(JarvisConfig.WORKER_URL + "/image").openConnection() as HttpURLConnection).apply {
+                              requestMethod = "POST"
+                              connectTimeout = 20000
+                              readTimeout = 180000
+                              doOutput = true
+                              setRequestProperty("Authorization", "Bearer " + JarvisConfig.CLIENT_TOKEN)
+                              setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                          }
+                          val payload = JSONObject()
+                              .put("prompt", prompt)
+                              .put("size", "1024x1024")
+                              .put("quality", "medium")
+                              .toString()
+                          connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                          val code = connection.responseCode
+                          val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                          val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                          val data = JSONObject(body)
+                          if (code in 200..299) {
+                              val encoded = data.optString("image_base64")
+                              if (encoded.isNotBlank()) {
+                                  val bytes = Base64.decode(encoded, Base64.DEFAULT)
+                                  bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                  message = if (bitmap != null) "Here is the image I created." else "The image was received but could not be displayed."
+                              } else {
+                                  message = "The image service returned no image data."
+                              }
+                          } else {
+                              message = "Image service error (HTTP " + code + "): " +
+                                  data.optString("details", data.optString("error", "Please try again."))
+                          }
+                      } catch (e: Exception) {
+                          message = "I could not complete image generation. Check your connection and try again."
+                      } finally {
+                          connection?.disconnect()
+                      }
+                      runOnUiThread {
+                          if (bitmap != null) generatedImage = bitmap
+                          reply = message
+                          statusText = "Ready"
+                          speak(message)
+                      }
+                  }.start()
+              }
+          """
+          s = s.replace(class_anchor, "\\n" + method + "\\n}\\n\\n@Composable\\nprivate fun JarvisScreen(", 1)
+
+          # Pass the image into the Compose screen.
+          response_arg = "response = reply,"
+          if s.count(response_arg) != 1:
+              raise SystemExit("Could not locate JarvisScreen response argument")
+          s = s.replace(response_arg, response_arg + "\\n                          generatedImage = generatedImage,", 1)
+
+          # Add image parameter to the screen.
+          signature = "              response: String,"
+          if s.count(signature) != 1:
+              raise SystemExit("Could not locate JarvisScreen response parameter")
+          s = s.replace(signature, signature + "\\n              generatedImage: android.graphics.Bitmap?,", 1)
+
+          # Render the generated image beneath the response text.
+          response_text = '                                      Text("JARVIS: $response")'
+          if s.count(response_text) != 1:
+              raise SystemExit("Could not locate JARVIS response display")
+          image_ui = response_text + """
+                                      if (generatedImage != null) {
+                                          Image(
+                                              bitmap = generatedImage.asImageBitmap(),
+                                              contentDescription = "Image generated by JARVIS",
+                                              modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                                              contentScale = ContentScale.Fit
+                                          )
+                                      }"""
+          s = s.replace(response_text, image_ui, 1)
+
+          path.write_text(s)
+          print("JARVIS image-generation request and in-conversation image display added")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
