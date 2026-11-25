@@ -1538,13 +1538,12 @@ jobs:
           '''
           s = s.replace(class_anchor, "\n" + methods + "\n}\n\n@Composable\nprivate fun JarvisScreen(", 1)
 
-          signature_anchor = "              response: String,"
-          if s.count(signature_anchor) != 1:
+          signature_match = re.search(r"(?m)^(\s*)response: String,$", s)
+          if not signature_match:
               raise SystemExit("Could not locate JarvisScreen response parameter")
-          s = s.replace(signature_anchor, signature_anchor + """
-              historyItems: List<String>,
-              onCopyResponse: () -> Unit,
-              onSaveImage: () -> Unit,""", 1)
+          signature_indent = signature_match.group(1)
+          signature_insert = signature_match.group(0) + "\n" + signature_indent + "historyItems: List<String>," + "\n" + signature_indent + "onCopyResponse: () -> Unit," + "\n" + signature_indent + "onSaveImage: () -> Unit,"
+          s = s[:signature_match.start()] + signature_insert + s[signature_match.end():]
 
           state_ui_anchor = "              var expanded by remember { mutableStateOf(false) }"
           if s.count(state_ui_anchor) != 1:
