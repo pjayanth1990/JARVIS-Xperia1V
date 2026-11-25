@@ -1403,6 +1403,212 @@ jobs:
           print("JARVIS image-generation request and in-conversation image display added")
           PY
 
+      - name: Add response actions and conversation history
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          import_anchor = "import java.util.Locale"
+          extra_imports = [
+              "import android.content.ClipData",
+              "import android.content.ClipboardManager",
+              "import android.content.ContentValues",
+              "import android.os.Build",
+              "import android.provider.MediaStore",
+              "import android.widget.Toast"
+          ]
+          if s.count(import_anchor) != 1:
+              raise SystemExit("Could not locate MainActivity import anchor")
+          for item in extra_imports:
+              if item not in s:
+                  s = s.replace(import_anchor, import_anchor + "\n" + item, 1)
+                  import_anchor = item
+
+          state_anchor = 'private var reply by mutableStateOf("At your service. JARVIS core is online.")'
+          if s.count(state_anchor) != 1:
+              raise SystemExit("Could not locate JARVIS reply state")
+          if "private val historyItems" not in s:
+              s = s.replace(state_anchor, state_anchor + '\n    private val historyItems = mutableStateListOf<String>()', 1)
+
+          oncreate_anchor = "                  tts = TextToSpeech(this, this)"
+          if s.count(oncreate_anchor) != 1:
+              raise SystemExit("Could not locate onCreate initialisation")
+          s = s.replace(oncreate_anchor, oncreate_anchor + "\n                  loadHistory()", 1)
+
+          response_arg = "                          response = reply,"
+          if s.count(response_arg) != 1:
+              raise SystemExit("Could not locate response argument in JarvisScreen")
+          s = s.replace(response_arg, response_arg + """
+                          historyItems = historyItems,
+                          onCopyResponse = { copyResponse() },
+                          onSaveImage = { saveGeneratedImage() },""", 1)
+
+          local_anchor = "                  reply = result"
+          if s.count(local_anchor) != 1:
+              raise SystemExit("Could not locate local command response assignment")
+          s = s.replace(local_anchor, local_anchor + "\n                  saveHistory(raw, result)", 1)
+
+          ai_anchor = "                      reply = answer"
+          if s.count(ai_anchor) != 1:
+              raise SystemExit("Could not locate AI response assignment")
+          s = s.replace(ai_anchor, ai_anchor + "\n                      saveHistory(question, answer)", 1)
+
+          image_anchor = "                          reply = message"
+          if s.count(image_anchor) != 1:
+              raise SystemExit("Could not locate image response assignment")
+          s = s.replace(image_anchor, image_anchor + "\n                          saveHistory(prompt, message)", 1)
+
+          class_anchor = "\n}\n\n@Composable\nprivate fun JarvisScreen("
+          if s.count(class_anchor) != 1:
+              raise SystemExit("Could not locate MainActivity class boundary")
+          methods = r'''
+              private fun loadHistory() {
+                  try {
+                      val saved = getSharedPreferences("jarvis_history", MODE_PRIVATE)
+                          .getString("items", "[]") ?: "[]"
+                      val array = org.json.JSONArray(saved)
+                      historyItems.clear()
+                      for (i in 0 until array.length()) historyItems.add(array.getString(i))
+                  } catch (_: Exception) {
+                      historyItems.clear()
+                  }
+              }
+
+              private fun saveHistory(userText: String, assistantText: String) {
+                  if (userText.isBlank() || assistantText.isBlank()) return
+                  val stamp = java.text.SimpleDateFormat("dd MMM yyyy, h:mm a", Locale.getDefault())
+                      .format(java.util.Date())
+                  val entry = "$stamp\nYou: $userText\nJARVIS: $assistantText"
+                  historyItems.add(0, entry)
+                  while (historyItems.size > 100) historyItems.removeAt(historyItems.lastIndex)
+                  val array = org.json.JSONArray()
+                  historyItems.forEach { array.put(it) }
+                  getSharedPreferences("jarvis_history", MODE_PRIVATE).edit()
+                      .putString("items", array.toString()).apply()
+              }
+
+              private fun copyResponse() {
+                  val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                  clipboard.setPrimaryClip(ClipData.newPlainText("JARVIS response", reply))
+                  Toast.makeText(this, "Response copied", Toast.LENGTH_SHORT).show()
+              }
+
+              private fun saveGeneratedImage() {
+                  val bitmap = generatedImage
+                  if (bitmap == null) {
+                      Toast.makeText(this, "No generated image to save", Toast.LENGTH_SHORT).show()
+                      return
+                  }
+                  try {
+                      val values = ContentValues().apply {
+                          put(MediaStore.Images.Media.DISPLAY_NAME,
+                              "JARVIS_" + System.currentTimeMillis() + ".jpg")
+                          put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                              put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/JARVIS")
+                              put(MediaStore.Images.Media.IS_PENDING, 1)
+                          }
+                      }
+                      val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                          ?: throw IllegalStateException("Could not create image file")
+                      contentResolver.openOutputStream(uri)?.use { output ->
+                          if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, output)) {
+                              throw IllegalStateException("Image encoding failed")
+                          }
+                      } ?: throw IllegalStateException("Could not open image file")
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                          val complete = ContentValues().apply {
+                              put(MediaStore.Images.Media.IS_PENDING, 0)
+                          }
+                          contentResolver.update(uri, complete, null, null)
+                      }
+                      Toast.makeText(this, "Image saved to Pictures/JARVIS", Toast.LENGTH_LONG).show()
+                  } catch (e: Exception) {
+                      Toast.makeText(this, "Could not save image: " + e.message, Toast.LENGTH_LONG).show()
+                  }
+              }
+          '''
+          s = s.replace(class_anchor, "\n" + methods + "\n}\n\n@Composable\nprivate fun JarvisScreen(", 1)
+
+          signature_anchor = "              response: String,"
+          if s.count(signature_anchor) != 1:
+              raise SystemExit("Could not locate JarvisScreen response parameter")
+          s = s.replace(signature_anchor, signature_anchor + """
+              historyItems: List<String>,
+              onCopyResponse: () -> Unit,
+              onSaveImage: () -> Unit,""", 1)
+
+          state_ui_anchor = "              var expanded by remember { mutableStateOf(false) }"
+          if s.count(state_ui_anchor) != 1:
+              raise SystemExit("Could not locate JarvisScreen state")
+          s = s.replace(state_ui_anchor, state_ui_anchor + "\n              var showHistory by remember { mutableStateOf(false) }", 1)
+
+          response_display = '                                      Text("JARVIS: $response")'
+          if s.count(response_display) != 1:
+              raise SystemExit("Could not locate response display")
+          actions_ui = response_display + """
+                                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                          OutlinedButton(onClick = onCopyResponse) {
+                                              Text("COPY TEXT")
+                                          }
+                                          OutlinedButton(onClick = { showHistory = true }) {
+                                              Text("HISTORY (" + historyItems.size + ")")
+                                          }
+                                      }"""
+          if "if (generatedImage != null)" in s:
+              image_end = """                                              contentScale = ContentScale.Fit
+                                          )
+                                      }"""
+              if s.count(image_end) != 1:
+                  raise SystemExit("Could not locate generated image UI")
+              actions_ui += """
+                                      if (generatedImage != null) {
+                                          OutlinedButton(onClick = onSaveImage, modifier = Modifier.fillMaxWidth()) {
+                                              Text("SAVE IMAGE TO GALLERY")
+                                          }
+                                      }"""
+          s = s.replace(response_display, actions_ui, 1)
+
+          dialog_anchor = "              MaterialTheme("
+          if s.count(dialog_anchor) != 1:
+              raise SystemExit("Could not locate JarvisScreen MaterialTheme")
+          dialog = """
+              if (showHistory) {
+                  AlertDialog(
+                      onDismissRequest = { showHistory = false },
+                      title = { Text("JARVIS HISTORY") },
+                      text = {
+                          if (historyItems.isEmpty()) {
+                              Text("No conversations saved yet.")
+                          } else {
+                              LazyColumn(
+                                  modifier = Modifier.heightIn(max = 420.dp),
+                                  verticalArrangement = Arrangement.spacedBy(12.dp)
+                              ) {
+                                  items(historyItems.size) { index ->
+                                      Text(historyItems[index])
+                                      if (index < historyItems.lastIndex) HorizontalDivider()
+                                  }
+                              }
+                          }
+                      },
+                      confirmButton = {
+                          TextButton(onClick = { showHistory = false }) { Text("CLOSE") }
+                      }
+                  )
+              }
+
+          """
+          s = s.replace(dialog_anchor, dialog + dialog_anchor, 1)
+
+          path.write_text(s)
+          print("Added on-device conversation history, copy response, and save image actions")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
