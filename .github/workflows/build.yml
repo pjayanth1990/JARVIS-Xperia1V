@@ -1567,8 +1567,8 @@ jobs:
           once("private var conversationActive = false",
                "private var conversationActive = false\n    private var wakeWordEnabled by mutableStateOf(false)\n    private var activeRecognizer: SpeechRecognizer? = null",
                "privacy state")
-          once("loadHistory()",
-               'loadHistory()\n                  wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)',
+          once("                  loadHistory()",
+               '                  loadHistory()\n                  wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)',
                "privacy preference loading")
 
           once("response = reply,",
@@ -1616,12 +1616,12 @@ jobs:
           once("val recognizer = SpeechRecognizer.createSpeechRecognizer(this)",
                "val recognizer = SpeechRecognizer.createSpeechRecognizer(this)\n                  activeRecognizer = recognizer",
                "active recognizer tracking")
-          once("recognizer.destroy()\n                      }\n                      override fun onResults",
-               "recognizer.destroy()\n                          if (activeRecognizer === recognizer) activeRecognizer = null\n                      }\n                      override fun onResults",
-               "recognizer error cleanup")
-          once("recognizer.destroy()\n                      }\n                      override fun onPartialResults",
-               "recognizer.destroy()\n                          if (activeRecognizer === recognizer) activeRecognizer = null\n                      }\n                      override fun onPartialResults",
-               "recognizer result cleanup")
+          if s.count("recognizer.destroy()") < 2:
+              raise SystemExit("Could not locate both recognizer cleanup points")
+          s = s.replace(
+              "recognizer.destroy()",
+              "recognizer.destroy()\n                          if (activeRecognizer === recognizer) activeRecognizer = null"
+          )
 
           # App resume must not silently re-enable the microphone.
           old = """if (intent?.action != Intent.ACTION_ASSIST &&
