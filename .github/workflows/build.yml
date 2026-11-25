@@ -1448,20 +1448,23 @@ jobs:
           response_insert = response_match.group(0) + "\n" + response_indent + "historyItems = historyItems," + "\n" + response_indent + "onCopyResponse = { copyResponse() }," + "\n" + response_indent + "onSaveImage = { saveGeneratedImage() },"
           s = s[:response_match.start()] + response_insert + s[response_match.end():]
 
-          local_anchor = "                  reply = result"
-          if s.count(local_anchor) != 1:
+          local_match = re.search(r"(?m)^(\s*)reply = result$", s)
+          if not local_match:
               raise SystemExit("Could not locate local command response assignment")
-          s = s.replace(local_anchor, local_anchor + "\n                  saveHistory(raw, result)", 1)
+          local_indent = local_match.group(1)
+          s = s[:local_match.end()] + "\n" + local_indent + "saveHistory(raw, result)" + s[local_match.end():]
 
-          ai_anchor = "                      reply = answer"
-          if s.count(ai_anchor) != 1:
+          ai_match = re.search(r"(?m)^(\s*)reply = answer$", s)
+          if not ai_match:
               raise SystemExit("Could not locate AI response assignment")
-          s = s.replace(ai_anchor, ai_anchor + "\n                      saveHistory(question, answer)", 1)
+          ai_indent = ai_match.group(1)
+          s = s[:ai_match.end()] + "\n" + ai_indent + "saveHistory(question, answer)" + s[ai_match.end():]
 
-          image_anchor = "                          reply = message"
-          if s.count(image_anchor) != 1:
+          image_match = re.search(r"(?m)^(\s*)reply = message$", s)
+          if not image_match:
               raise SystemExit("Could not locate image response assignment")
-          s = s.replace(image_anchor, image_anchor + "\n                          saveHistory(prompt, message)", 1)
+          image_indent = image_match.group(1)
+          s = s[:image_match.end()] + "\n" + image_indent + "saveHistory(prompt, message)" + s[image_match.end():]
 
           class_anchor = "\n}\n\n@Composable\nprivate fun JarvisScreen("
           if s.count(class_anchor) != 1:
