@@ -1283,47 +1283,44 @@ jobs:
               "import android.util.Base64",
               "import androidx.compose.foundation.Image",
               "import androidx.compose.ui.graphics.asImageBitmap",
-              "import androidx.compose.ui.layout.ContentScale"
+              "import androidx.compose.ui.layout.ContentScale",
+              "import org.json.JSONObject",
+              "import java.net.HttpURLConnection",
+              "import java.net.URL"
           ]
           anchor = "import java.util.Locale"
           if s.count(anchor) != 1:
               raise SystemExit("Could not locate Kotlin import anchor")
-          s = s.replace(anchor, anchor + "\n" + "\n".join(imports), 1)
+          for item in imports:
+              if item not in s:
+                  s = s.replace(anchor, anchor + "\n" + item, 1)
+                  anchor = item
 
           state_anchor = 'private var reply by mutableStateOf("At your service. JARVIS core is online.")'
           if s.count(state_anchor) != 1:
               raise SystemExit("Could not locate JARVIS reply state")
-          s = s.replace(state_anchor, state_anchor + "\n    private var generatedImage by mutableStateOf<android.graphics.Bitmap?>(null)", 1)
+          if "generatedImage by mutableStateOf" not in s:
+              s = s.replace(state_anchor, state_anchor + "\n    private var generatedImage by mutableStateOf<android.graphics.Bitmap?>(null)", 1)
 
-          # Route explicit image requests to the image endpoint before local/text handling.
           command_anchor = "val command = raw.lowercase(Locale.ROOT)"
           if s.count(command_anchor) != 1:
               raise SystemExit("Could not locate command parser")
           image_dispatch = """val command = raw.lowercase(Locale.ROOT)
-                  if (
-                      command.contains("generate image") ||
-                      command.contains("create image") ||
-                      command.contains("draw an image") ||
-                      command.contains("draw a picture") ||
-                      command.contains("make an image") ||
-                      command.contains("generate a picture") ||
-                      command.contains("create a picture") ||
-                      command.contains("generate a photo") ||
-                      command.contains("create a photo")
-                  ) {
+                  if (listOf("generate image", "create image", "draw an image", "draw a picture",
+                      "make an image", "generate a picture", "create a picture",
+                      "generate a photo", "create a photo").any { command.contains(it) }) {
                       askJarvisImage(raw)
                       return
                   }"""
           s = s.replace(command_anchor, image_dispatch, 1)
 
-          # Add image-generation network method inside MainActivity.
           class_anchor = "\n}\n\n@Composable\nprivate fun JarvisScreen("
           if s.count(class_anchor) != 1:
               raise SystemExit("Could not locate MainActivity class boundary")
           method = r"""
               private fun askJarvisImage(prompt: String) {
                   statusText = "Creating your image…"
-                  reply = "JARVIS is generating your image. This may take a little while."
+                  reply = "JARVIS is generating your image. Please wait."
                   speak("Creating your image. Please wait.")
                   Thread {
                       var connection: HttpURLConnection? = null
@@ -1377,36 +1374,38 @@ jobs:
           """
           s = s.replace(class_anchor, "\n" + method + "\n}\n\n@Composable\nprivate fun JarvisScreen(", 1)
 
-          # Pass the image into the Compose screen.
           response_arg = "response = reply,"
           if s.count(response_arg) != 1:
               raise SystemExit("Could not locate JarvisScreen response argument")
           s = s.replace(response_arg, response_arg + "\n                          generatedImage = generatedImage,", 1)
 
-          # Add image parameter to the screen.
           signature = "response: String,"
           if s.count(signature) != 1:
               raise SystemExit("Could not uniquely locate JarvisScreen response parameter")
           s = s.replace(signature, signature + "\n              generatedImage: android.graphics.Bitmap?,", 1)
 
-          # Render the generated image beneath the response text.
-          import re
-          response_lines = list(re.finditer(r'(?m)^(?P<indent>[ \\t]*)Text\\("JARVIS: \\$response"\\)[ \\t]*
+          display = 'Text("JARVIS: $response")'
+          if s.count(display) != 1:
+              raise SystemExit("Could not uniquely locate JARVIS response display")
+          image_ui = display + """
+                                      if (generatedImage != null) {
+                                          Image(
+                                              bitmap = generatedImage.asImageBitmap(),
+                                              contentDescription = "Image generated by JARVIS",
+                                              modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                                              contentScale = ContentScale.Fit
+                                          )
+                                      }"""
+          s = s.replace(display, image_ui, 1)
 
           path.write_text(s)
           print("JARVIS image-generation request and in-conversation image display added")
           PY
 
-      # Image generation integration build trigger
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-
-      - name: Print generated MainActivity before compilation
-        run: |
-          echo "---- GENERATED MainActivity.kt lines 110-125 ----"
-          nl -ba "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/MainActivity.kt" | sed -n '110,125p'
 
       - name: Build JARVIS APK
         run: |
@@ -1415,71 +1414,9 @@ jobs:
 
       - name: Sign APK with permanent JARVIS key
         env:
-          JARVIS_KEYSTORE_BASE64: ${{ secrets.JARVIS_KEYSTORE_BASE64 }}
-          JARVIS_STORE_PASSWORD: ${{ secrets.JARVIS_STORE_PASSWORD }}
-          JARVIS_KEY_PASSWORD: ${{ secrets.JARVIS_KEY_PASSWORD }}
-        run: |
-          set -e
-          umask 077
-          printf '%s' "$JARVIS_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/jarvis-release.jks"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
-            --ks "$RUNNER_TEMP/jarvis-release.jks" \
-            --ks-key-alias jarvis \
-            --ks-pass env:JARVIS_STORE_PASSWORD \
-            --key-pass env:JARVIS_KEY_PASSWORD \
-            --out "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug-signed.apk" \
-            "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug-signed.apk"
-          rm -f "$RUNNER_TEMP/jarvis-release.jks"
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: JARVIS-Xperia1V-APK
-          path: '**/build/outputs/apk/debug/app-debug-signed.apk'
-          if-no-files-found: error
-, s))
-          if len(response_lines) != 1:
-              raise SystemExit("Could not uniquely locate JARVIS response display; matches=" + str(len(response_lines)))
-          match = response_lines[0]
-          indent = match.group("indent")
-          response_text = match.group(0)
-          image_ui = response_text + """
-          """ + indent + """if (generatedImage != null) {
-          """ + indent + """    Image(
-          """ + indent + """        bitmap = generatedImage.asImageBitmap(),
-          """ + indent + """        contentDescription = "Image generated by JARVIS",
-          """ + indent + """        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
-          """ + indent + """        contentScale = ContentScale.Fit
-          """ + indent + """    )
-          """ + indent + """}"""
-          s = s[:match.start()] + image_ui + s[match.end():]
-
-          path.write_text(s)
-          print("JARVIS image-generation request and in-conversation image display added")
-          PY
-
-      # Image generation integration build trigger
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-
-      - name: Print generated MainActivity before compilation
-        run: |
-          echo "---- GENERATED MainActivity.kt lines 110-125 ----"
-          nl -ba "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/MainActivity.kt" | sed -n '110,125p'
-
-      - name: Build JARVIS APK
-        run: |
-          cd "$PROJECT_DIR"
-          gradle assembleDebug
-
-      - name: Sign APK with permanent JARVIS key
-        env:
-          JARVIS_KEYSTORE_BASE64: ${{ secrets.JARVIS_KEYSTORE_BASE64 }}
-          JARVIS_STORE_PASSWORD: ${{ secrets.JARVIS_STORE_PASSWORD }}
-          JARVIS_KEY_PASSWORD: ${{ secrets.JARVIS_KEY_PASSWORD }}
+          JARVIS_KEYSTORE_BASE64: \${{ secrets.JARVIS_KEYSTORE_BASE64 }}
+          JARVIS_STORE_PASSWORD: \${{ secrets.JARVIS_STORE_PASSWORD }}
+          JARVIS_KEY_PASSWORD: \${{ secrets.JARVIS_KEY_PASSWORD }}
         run: |
           set -e
           umask 077
