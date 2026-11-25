@@ -1538,7 +1538,7 @@ jobs:
               }
 
           """
-          match = re.search(r"(?m)^(\\s*)MaterialTheme\\(", s)
+          match = re.search(r"(?m)^(\s*)MaterialTheme\(", s)
           if not match:
               raise SystemExit("Could not locate JarvisScreen MaterialTheme")
           indent = match.group(1)
