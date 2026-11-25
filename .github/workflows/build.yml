@@ -1567,9 +1567,12 @@ jobs:
           once("private var conversationActive = false",
                "private var conversationActive = false\n    private var wakeWordEnabled by mutableStateOf(false)\n    private var activeRecognizer: SpeechRecognizer? = null",
                "privacy state")
-          once("                  loadHistory()",
-               '                  loadHistory()\n                  wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)',
-               "privacy preference loading")
+          matches = list(__import__("re").finditer(r"(?m)^([ \t]*)loadHistory\(\)[ \t]*$", s))
+          if len(matches) != 1:
+              raise SystemExit("Could not uniquely locate history loading call (matches=" + str(len(matches)) + ")")
+          m = matches[0]
+          line = m.group(0)
+          s = s[:m.start()] + line + '\n' + m.group(1) + 'wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)' + s[m.end():]
 
           once("response = reply,",
                "response = reply,\n                          wakeWordEnabled = wakeWordEnabled,\n                          onWakeWordToggle = { setWakeWordEnabled(it) },",
