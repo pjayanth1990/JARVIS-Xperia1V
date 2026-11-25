@@ -1384,9 +1384,9 @@ jobs:
           s = s.replace(response_arg, response_arg + "\n                          generatedImage = generatedImage,", 1)
 
           # Add image parameter to the screen.
-          signature = "              response: String,"
+          signature = "response: String,"
           if s.count(signature) != 1:
-              raise SystemExit("Could not locate JarvisScreen response parameter")
+              raise SystemExit("Could not uniquely locate JarvisScreen response parameter")
           s = s.replace(signature, signature + "\n              generatedImage: android.graphics.Bitmap?,", 1)
 
           # Render the generated image beneath the response text.
