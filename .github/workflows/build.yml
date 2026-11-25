@@ -1445,10 +1445,7 @@ jobs:
           if not response_match:
               raise SystemExit("Could not locate response argument in JarvisScreen")
           response_indent = response_match.group(1)
-          response_insert = response_match.group(0) + """
-          """ + response_indent + """historyItems = historyItems,
-          """ + response_indent + """onCopyResponse = { copyResponse() },
-          """ + response_indent + """onSaveImage = { saveGeneratedImage() },"""
+          response_insert = response_match.group(0) + "\n" + response_indent + "historyItems = historyItems," + "\n" + response_indent + "onCopyResponse = { copyResponse() }," + "\n" + response_indent + "onSaveImage = { saveGeneratedImage() },"
           s = s[:response_match.start()] + response_insert + s[response_match.end():]
 
           local_anchor = "                  reply = result"
