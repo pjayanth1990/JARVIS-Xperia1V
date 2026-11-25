@@ -1407,90 +1407,68 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import os
-          import re
+          import os, re
 
           path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
           s = path.read_text()
 
-          # Imports for clipboard and Gallery saving.
-          import_anchor = "import java.util.Locale"
-          extra_imports = [
+          def once(old, new, label):
+              global s
+              if s.count(old) != 1:
+                  raise SystemExit("Could not safely update " + label)
+              s = s.replace(old, new, 1)
+
+          imports = [
               "import android.content.ClipData",
               "import android.content.ClipboardManager",
               "import android.content.ContentValues",
               "import android.os.Build",
               "import android.provider.MediaStore",
-              "import android.widget.Toast"
+              "import android.widget.Toast",
+              "import androidx.compose.ui.graphics.asImageBitmap",
+              "import androidx.compose.ui.layout.ContentScale"
           ]
-          if s.count(import_anchor) != 1:
+          anchor = "import java.util.Locale"
+          if s.count(anchor) != 1:
               raise SystemExit("Could not locate imports")
-          for item in extra_imports:
+          for item in imports:
               if item not in s:
-                  s = s.replace(import_anchor, import_anchor + "\n" + item, 1)
-                  import_anchor = item
+                  s = s.replace(anchor, anchor + "\n" + item, 1)
+                  anchor = item
 
-          # Keep up to 100 recent exchanges in private app storage.
-          state_anchor = 'private var reply by mutableStateOf("At your service. JARVIS core is online.")'
-          if s.count(state_anchor) != 1:
-              raise SystemExit("Could not locate JARVIS reply state")
-          if "private val historyItems" not in s:
-              s = s.replace(state_anchor, state_anchor + '\n    private val historyItems = mutableStateListOf<String>()', 1)
+          state = 'private var reply by mutableStateOf("At your service. JARVIS core is online.")'
+          once(state, state + '\n    private val historyItems = mutableStateListOf<String>()', "history state")
+          once("tts = TextToSpeech(this, this)", "tts = TextToSpeech(this, this)\n                  loadHistory()", "history loading")
 
-          startup = re.search(r"(?m)^(\s*)tts = TextToSpeech\(this, this\)$", s)
-          if not startup:
-              raise SystemExit("Could not locate onCreate initialisation")
-          s = s[:startup.end()] + "\n" + startup.group(1) + "loadHistory()" + s[startup.end():]
+          response_arg = "response = reply,"
+          once(response_arg, response_arg + "\n                          historyItems = historyItems,\n                          onCopyResponse = { copyResponse() },\n                          onSaveImage = { saveGeneratedImage() },", "screen arguments")
 
-          def insert_after(pattern, line):
-              global s
-              match = re.search(pattern, s, re.MULTILINE)
-              if not match:
-                  raise SystemExit("Could not locate response insertion point: " + pattern)
-              indent = match.group(1)
-              s = s[:match.end()] + "\n" + indent + line + s[match.end():]
+          for old, new, label in [
+              ("reply = result", "reply = result\n                  saveHistory(raw, result)", "local history"),
+              ("reply = answer", "reply = answer\n                      saveHistory(question, answer)", "AI history"),
+              ("reply = message", "reply = message\n                          saveHistory(prompt, message)", "image history")
+          ]:
+              once(old, new, label)
 
-          # Record the user's request and JARVIS reply for every command type.
-          insert_after(r"^(\s*)reply = result$", "saveHistory(raw, result)")
-          insert_after(r"^(\s*)reply = answer$", "saveHistory(question, answer)")
-          insert_after(r"^(\s*)reply = message$", "saveHistory(prompt, message)")
-
-          # Wire UI callbacks and the history collection into the screen.
-          response_arg = re.search(r"(?m)^(\s*)response = reply,$", s)
-          if not response_arg:
-              raise SystemExit("Could not locate JarvisScreen response argument")
-          ind = response_arg.group(1)
-          extra = "\n" + ind + "historyItems = historyItems," + "\n" + ind + "onCopyResponse = { copyResponse() }," + "\n" + ind + "onSaveImage = { saveGeneratedImage() },"
-          s = s[:response_arg.end()] + extra + s[response_arg.end():]
-
-          # Add persistence, clipboard and image-save functions to MainActivity.
-          class_anchor = "\n}\n\n@Composable\nprivate fun JarvisScreen("
-          if s.count(class_anchor) != 1:
-              raise SystemExit("Could not locate MainActivity class boundary")
-          methods = r'''
+          class_end = "\n}\n\n@Composable\nprivate fun JarvisScreen("
+          methods = r"""
               private fun loadHistory() {
                   try {
-                      val saved = getSharedPreferences("jarvis_history", MODE_PRIVATE)
-                          .getString("items", "[]") ?: "[]"
+                      val saved = getSharedPreferences("jarvis_history", MODE_PRIVATE).getString("items", "[]") ?: "[]"
                       val array = org.json.JSONArray(saved)
                       historyItems.clear()
                       for (i in 0 until array.length()) historyItems.add(array.getString(i))
-                  } catch (_: Exception) {
-                      historyItems.clear()
-                  }
+                  } catch (_: Exception) { historyItems.clear() }
               }
 
               private fun saveHistory(userText: String, assistantText: String) {
                   if (userText.isBlank() || assistantText.isBlank()) return
-                  val stamp = java.text.SimpleDateFormat("dd MMM yyyy, h:mm a", Locale.getDefault())
-                      .format(java.util.Date())
-                  val entry = "$stamp\nYou: $userText\nJARVIS: $assistantText"
-                  historyItems.add(0, entry)
+                  val stamp = java.text.SimpleDateFormat("dd MMM yyyy, h:mm a", Locale.getDefault()).format(java.util.Date())
+                  historyItems.add(0, "$stamp\nYou: $userText\nJARVIS: $assistantText")
                   while (historyItems.size > 100) historyItems.removeAt(historyItems.lastIndex)
                   val array = org.json.JSONArray()
                   historyItems.forEach { array.put(it) }
-                  getSharedPreferences("jarvis_history", MODE_PRIVATE).edit()
-                      .putString("items", array.toString()).apply()
+                  getSharedPreferences("jarvis_history", MODE_PRIVATE).edit().putString("items", array.toString()).apply()
               }
 
               private fun copyResponse() {
@@ -1510,214 +1488,59 @@ jobs:
                               put(MediaStore.Images.Media.IS_PENDING, 1)
                           }
                       }
-                      val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                          ?: throw IllegalStateException("Could not create image file")
-                      contentResolver.openOutputStream(uri)?.use { output ->
-                          if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, output)) {
-                              throw IllegalStateException("Image encoding failed")
-                          }
-                      } ?: throw IllegalStateException("Could not open image file")
+                      val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("Could not create image")
+                      contentResolver.openOutputStream(uri)?.use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, it) } ?: error("Could not write image")
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                          val complete = ContentValues().apply {
-                              put(MediaStore.Images.Media.IS_PENDING, 0)
-                          }
-                          contentResolver.update(uri, complete, null, null)
+                          contentResolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
                       }
-                      Toast.makeText(this, "Image saved to Pictures/JARVIS", Toast.LENGTH_LONG).show()
+                      Toast.makeText(this, "Saved to Pictures/JARVIS", Toast.LENGTH_LONG).show()
                   } catch (e: Exception) {
-                      Toast.makeText(this, "Could not save image: " + e.message, Toast.LENGTH_LONG).show()
+                      Toast.makeText(this, "Save failed: " + e.message, Toast.LENGTH_LONG).show()
                   }
               }
-          '''
-          s = s.replace(class_anchor, "\n" + methods + "\n}\n\n@Composable\nprivate fun JarvisScreen(", 1)
+          """
+          once(class_end, "\n" + methods + class_end, "activity methods")
 
-          signature = re.search(r"(?m)^(\s*)response: String,$", s)
-          if not signature:
-              raise SystemExit("Could not locate JarvisScreen response parameter")
-          ind = signature.group(1)
-          extra = "\n" + ind + "historyItems: List<String>," + "\n" + ind + "onCopyResponse: () -> Unit," + "\n" + ind + "onSaveImage: () -> Unit,"
-          s = s[:signature.end()] + extra + s[signature.end():]
+          signature = "response: String,"
+          once(signature, signature + "\n    historyItems: List<String>,\n    onCopyResponse: () -> Unit,\n    onSaveImage: () -> Unit,", "screen parameters")
 
-          expanded = re.search(r"(?m)^(\s*)var expanded by remember \{ mutableStateOf\(false\) \}$", s)
-          if not expanded:
-              raise SystemExit("Could not locate JarvisScreen state")
-          s = s[:expanded.end()] + "\n" + expanded.group(1) + "var showHistory by remember { mutableStateOf(false) }" + s[expanded.end():]
+          once("var expanded by remember { mutableStateOf(false) }", "var expanded by remember { mutableStateOf(false) }\n              var showHistory by remember { mutableStateOf(false) }", "history visibility")
 
-          # Copy and history buttons directly under the current response.
-          response_ui = re.search(r'(?m)^(\s*)Text\("JARVIS: \$response"\)$', s)
-          if not response_ui:
-              raise SystemExit("Could not locate response display")
-          ind = response_ui.group(1)
-          ui = [
-              "Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {",
-              "    OutlinedButton(onClick = onCopyResponse) {",
-              '        Text("COPY TEXT")',
-              "    }",
-              "    OutlinedButton(onClick = { showHistory = true }) {",
-              '        Text("HISTORY (" + historyItems.size + ")")',
-              "    }",
-              "}"
-          ]
-          s = s[:response_ui.end()] + "\n" + "\n".join(ind + line for line in ui) + s[response_ui.end():]
-
-          # Add Gallery button below the generated image.
-          image_block = """                                              contentScale = ContentScale.Fit
-                                          )
-                                      }"""
-          if s.count(image_block) != 1:
-              raise SystemExit("Could not locate generated image display")
-          save_button = image_block + """
+          display = 'Text("JARVIS: $response")'
+          ui = display + """
+                                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                          OutlinedButton(onClick = onCopyResponse) { Text("COPY TEXT") }
+                                          OutlinedButton(onClick = { showHistory = true }) { Text("HISTORY (" + historyItems.size + ")") }
+                                      }
                                       if (generatedImage != null) {
                                           OutlinedButton(onClick = onSaveImage, modifier = Modifier.fillMaxWidth()) {
                                               Text("SAVE IMAGE TO GALLERY")
                                           }
                                       }"""
-          s = s.replace(image_block, save_button, 1)
+          once(display, ui, "response actions")
 
-          # Show recent exchanges in a scrollable dialog.
-          surface_anchor = "                  Surface(modifier = Modifier.fillMaxSize(), color = bg) {"
-          if s.count(surface_anchor) != 1:
-              raise SystemExit("Could not locate main screen surface")
-          dialog = """
-                      if (showHistory) {
-                          AlertDialog(
-                              onDismissRequest = { showHistory = false },
-                              title = { Text("JARVIS HISTORY") },
-                              text = {
-                                  if (historyItems.isEmpty()) {
-                                      Text("No conversations saved yet.")
-                                  } else {
-                                      LazyColumn(
-                                          modifier = Modifier.heightIn(max = 420.dp),
-                                          verticalArrangement = Arrangement.spacedBy(12.dp)
-                                      ) {
-                                          items(historyItems.size) { index ->
-                                              Text(historyItems[index])
-                                              if (index < historyItems.lastIndex) HorizontalDivider()
-                                          }
-                                      }
-                                  }
-                              },
-                              confirmButton = {
-                                  TextButton(onClick = { showHistory = false }) { Text("CLOSE") }
-                              }
-                          )
-                      }
-          """
-          s = s.replace(surface_anchor, dialog + "\n" + surface_anchor, 1)
-
-          path.write_text(s)
-          print("Added on-device conversation history, copy response, and save image actions")
-          PY
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-
-      - name: Build JARVIS APK
-        run: |
-          cd "$PROJECT_DIR"
-          gradle assembleDebug
-
-      - name: Sign APK with permanent JARVIS key
-        env:
-          JARVIS_KEYSTORE_BASE64: ${{ secrets.JARVIS_KEYSTORE_BASE64 }}
-          JARVIS_STORE_PASSWORD: ${{ secrets.JARVIS_STORE_PASSWORD }}
-          JARVIS_KEY_PASSWORD: ${{ secrets.JARVIS_KEY_PASSWORD }}
-        run: |
-          set -e
-          umask 077
-          python3 - <<'PY'
-          import base64
-          import os
-          import re
-          raw = os.environ["JARVIS_KEYSTORE_BASE64"]
-          cleaned = re.sub(r"[^A-Za-z0-9+/=]", "", raw)
-          try:
-              data = base64.b64decode(cleaned, validate=True)
-          except Exception as exc:
-              raise SystemExit("JARVIS keystore secret is not valid base64: " + str(exc))
-          if len(data) < 100:
-              raise SystemExit("Decoded JARVIS keystore is unexpectedly small; check the repository secret")
-          with open(os.path.join(os.environ["RUNNER_TEMP"], "jarvis-release.jks"), "wb") as f:
-              f.write(data)
-          PY
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
-            --ks "$RUNNER_TEMP/jarvis-release.jks" \
-            --ks-key-alias jarvis \
-            --ks-pass env:JARVIS_STORE_PASSWORD \
-            --key-pass env:JARVIS_KEY_PASSWORD \
-            --out "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug-signed.apk" \
-            "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug-signed.apk"
-          rm -f "$RUNNER_TEMP/jarvis-release.jks"
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: JARVIS-Xperia1V-APK
-          path: '**/build/outputs/apk/debug/app-debug-signed.apk'
-          if-no-files-found: error
-, s)
-          if not response_display_match:
-              raise SystemExit("Could not locate response display")
-          ui_indent = response_display_match.group(1)
-          ui_lines = [
-              "Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {",
-              "    OutlinedButton(onClick = onCopyResponse) {",
-              '        Text("COPY TEXT")',
-              "    }",
-              "    OutlinedButton(onClick = { showHistory = true }) {",
-              '        Text("HISTORY (" + historyItems.size + ")")',
-              "    }",
-              "}"
-          ]
-          if "if (generatedImage != null)" in s:
-              ui_lines += [
-                  "if (generatedImage != null) {",
-                  "    OutlinedButton(onClick = onSaveImage, modifier = Modifier.fillMaxWidth()) {",
-                  '        Text("SAVE IMAGE TO GALLERY")',
-                  "    }",
-                  "}"
-              ]
-          actions_ui = response_display_match.group(0) + "\n" + "\n".join(ui_indent + line for line in ui_lines)
-          s = s[:response_display_match.start()] + actions_ui + s[response_display_match.end():]
-
-          dialog_anchor = "              MaterialTheme("
-          if s.count(dialog_anchor) != 1:
-              raise SystemExit("Could not locate JarvisScreen MaterialTheme")
           dialog = """
               if (showHistory) {
                   AlertDialog(
                       onDismissRequest = { showHistory = false },
                       title = { Text("JARVIS HISTORY") },
                       text = {
-                          if (historyItems.isEmpty()) {
-                              Text("No conversations saved yet.")
-                          } else {
-                              LazyColumn(
-                                  modifier = Modifier.heightIn(max = 420.dp),
-                                  verticalArrangement = Arrangement.spacedBy(12.dp)
-                              ) {
-                                  items(historyItems.size) { index ->
-                                      Text(historyItems[index])
-                                      if (index < historyItems.lastIndex) HorizontalDivider()
-                                  }
+                          if (historyItems.isEmpty()) Text("No conversations saved yet.")
+                          else LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                              items(historyItems.size) { index ->
+                                  Text(historyItems[index])
+                                  if (index < historyItems.lastIndex) HorizontalDivider()
                               }
                           }
                       },
-                      confirmButton = {
-                          TextButton(onClick = { showHistory = false }) { Text("CLOSE") }
-                      }
+                      confirmButton = { TextButton(onClick = { showHistory = false }) { Text("CLOSE") } }
                   )
               }
 
           """
-          s = s.replace(dialog_anchor, dialog + dialog_anchor, 1)
-
+          once("              MaterialTheme(", dialog + "              MaterialTheme(", "history dialog")
           path.write_text(s)
-          print("Added on-device conversation history, copy response, and save image actions")
+          print("Added persistent conversation history, copy response, and image save controls")
           PY
 
       - name: Set up Gradle
