@@ -1288,12 +1288,12 @@ jobs:
           anchor = "import java.util.Locale"
           if s.count(anchor) != 1:
               raise SystemExit("Could not locate Kotlin import anchor")
-          s = s.replace(anchor, anchor + "\\n" + "\\n".join(imports), 1)
+          s = s.replace(anchor, anchor + "\n" + "\n".join(imports), 1)
 
           state_anchor = 'private var reply by mutableStateOf("At your service. JARVIS core is online.")'
           if s.count(state_anchor) != 1:
               raise SystemExit("Could not locate JARVIS reply state")
-          s = s.replace(state_anchor, state_anchor + "\\n    private var generatedImage by mutableStateOf<android.graphics.Bitmap?>(null)", 1)
+          s = s.replace(state_anchor, state_anchor + "\n    private var generatedImage by mutableStateOf<android.graphics.Bitmap?>(null)", 1)
 
           # Route explicit image requests to the image endpoint before local/text handling.
           command_anchor = "val command = raw.lowercase(Locale.ROOT)"
@@ -1317,7 +1317,7 @@ jobs:
           s = s.replace(command_anchor, image_dispatch, 1)
 
           # Add image-generation network method inside MainActivity.
-          class_anchor = "\\n}\\n\\n@Composable\\nprivate fun JarvisScreen("
+          class_anchor = "\n}\n\n@Composable\nprivate fun JarvisScreen("
           if s.count(class_anchor) != 1:
               raise SystemExit("Could not locate MainActivity class boundary")
           method = r"""
@@ -1375,19 +1375,19 @@ jobs:
                   }.start()
               }
           """
-          s = s.replace(class_anchor, "\\n" + method + "\\n}\\n\\n@Composable\\nprivate fun JarvisScreen(", 1)
+          s = s.replace(class_anchor, "\n" + method + "\n}\n\n@Composable\nprivate fun JarvisScreen(", 1)
 
           # Pass the image into the Compose screen.
           response_arg = "response = reply,"
           if s.count(response_arg) != 1:
               raise SystemExit("Could not locate JarvisScreen response argument")
-          s = s.replace(response_arg, response_arg + "\\n                          generatedImage = generatedImage,", 1)
+          s = s.replace(response_arg, response_arg + "\n                          generatedImage = generatedImage,", 1)
 
           # Add image parameter to the screen.
           signature = "              response: String,"
           if s.count(signature) != 1:
               raise SystemExit("Could not locate JarvisScreen response parameter")
-          s = s.replace(signature, signature + "\\n              generatedImage: android.graphics.Bitmap?,", 1)
+          s = s.replace(signature, signature + "\n              generatedImage: android.graphics.Bitmap?,", 1)
 
           # Render the generated image beneath the response text.
           response_text = '                                      Text("JARVIS: $response")'
