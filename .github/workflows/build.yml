@@ -1434,10 +1434,12 @@ jobs:
           if "private val historyItems" not in s:
               s = s.replace(state_anchor, state_anchor + '\n    private val historyItems = mutableStateListOf<String>()', 1)
 
-          oncreate_anchor = "                  tts = TextToSpeech(this, this)"
-          if s.count(oncreate_anchor) != 1:
+          import re
+          oncreate_match = re.search(r"(?m)^(\s*)tts = TextToSpeech\(this, this\)$", s)
+          if not oncreate_match:
               raise SystemExit("Could not locate onCreate initialisation")
-          s = s.replace(oncreate_anchor, oncreate_anchor + "\n                  loadHistory()", 1)
+          indent = oncreate_match.group(1)
+          s = s[:oncreate_match.end()] + "\n" + indent + "loadHistory()" + s[oncreate_match.end():]
 
           response_arg = "                          response = reply,"
           if s.count(response_arg) != 1:
