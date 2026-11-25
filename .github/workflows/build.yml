@@ -1538,7 +1538,11 @@ jobs:
               }
 
           """
-          once("              MaterialTheme(", dialog + "              MaterialTheme(", "history dialog")
+          match = re.search(r"(?m)^(\\s*)MaterialTheme\\(", s)
+          if not match:
+              raise SystemExit("Could not locate JarvisScreen MaterialTheme")
+          indent = match.group(1)
+          s = s[:match.start()] + dialog + indent + s[match.start():]
           path.write_text(s)
           print("Added persistent conversation history, copy response, and image save controls")
           PY
