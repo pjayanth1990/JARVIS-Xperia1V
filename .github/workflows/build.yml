@@ -2177,7 +2177,7 @@ jobs:
 
           # The privacy switch is the master microphone permission inside JARVIS.
           start = s.find("private fun requestListen() {")
-          end = s.find("private fun listenOnce() {", start)
+          end = s.find("private fun startWakeWordService() {", start)
           if start < 0 or end < 0:
               raise SystemExit("Could not locate manual microphone entry points")
           request = """private fun requestListen() {
