@@ -2175,29 +2175,17 @@ jobs:
           path = root / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
           s = path.read_text()
 
-          # The privacy switch is the master microphone permission inside JARVIS.
-          start = s.find("private fun requestListen() {")
-          end = s.find("private fun startWakeWordService() {", start)
-          if start < 0 or end < 0:
-              raise SystemExit("Could not locate manual microphone entry points")
-          request = """private fun requestListen() {
+          # Block manual recording before it can request Android microphone permission.
+          request_anchor = "private fun requestListen() {"
+          request_guard = """private fun requestListen() {
                   if (!wakeWordEnabled) {
                       conversationActive = false
                       statusText = "Privacy Mode · microphone off"
                       return
-                  }
-                  conversationActive = true
-                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                      == PackageManager.PERMISSION_GRANTED) {
-                      listenOnce()
-                  } else {
-                      permissionForWakeWord = false
-                      permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                  }
-              }
-
-              """
-          s = s[:start] + request + s[end:]
+                  }"""
+          if s.count(request_anchor) != 1:
+              raise SystemExit("Could not uniquely locate requestListen")
+          s = s.replace(request_anchor, request_guard, 1)
 
           # Central hard stop: all paths to SpeechRecognizer must pass this guard,
           # including wake-word callbacks, Android assistant intents and follow-ups.
