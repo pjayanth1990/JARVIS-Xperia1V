@@ -585,6 +585,19 @@ jobs:
               val stopRequested = command.contains("stop listening")
               if (stopRequested) conversationActive = false
 
+              if (isWeatherQuestion(command)) {
+                  val city = extractWeatherCity(raw)
+                  if (city.isBlank()) {
+                      val message = "Which city should I check the weather for?"
+                      reply = message
+                      statusText = "Ready"
+                      speak(message)
+                  } else {
+                      fetchWeatherForCity(city)
+                  }
+                  return
+              }
+
               val result = when {
                   stopRequested ->
                       "Conversation ended. Call me whenever you need me."
@@ -774,28 +787,7 @@ jobs:
           root = Path(os.environ["PROJECT_DIR"])
           main = root / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
           s = main.read_text()
-          import re
-          marker = re.search(r"(?m)^([ \\t]*)val result = when \\{$", s)
-          if marker is None:
-              raise SystemExit("Could not safely locate local command routing")
-          indent = marker.group(1)
-          route_lines = [
-              indent + "if (isWeatherQuestion(command)) {",
-              indent + "    val city = extractWeatherCity(raw)",
-              indent + "    if (city.isBlank()) {",
-              indent + '        val message = "Which city should I check the weather for?"',
-              indent + "        reply = message",
-              indent + '        statusText = "Ready"',
-              indent + "        speak(message)",
-              indent + "    } else {",
-              indent + "        fetchWeatherForCity(city)",
-              indent + "    }",
-              indent + "    return",
-              indent + "}",
-              ""
-          ]
-          route = "\\n".join(route_lines)
-          s = s[:marker.start()] + route + s[marker.start():]
+
           anchor = "    private fun askJarvisAI(question: String) {"
           if s.count(anchor) != 1:
               raise SystemExit("Could not safely locate AI method insertion point")
