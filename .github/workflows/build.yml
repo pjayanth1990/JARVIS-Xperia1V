@@ -2177,7 +2177,7 @@ jobs:
 
           # Block manual recording before it can request Android microphone permission.
           import re
-          request_match = re.search(r'(?m)^(\\s*private fun requestListen\\([^\\n]*\\) \\{)', s)
+          request_match = re.search(r'(?m)^(\s*private fun requestListen\([^\n]*\) \{)', s)
           if not request_match:
               raise SystemExit("Could not find requestListen declaration (including optional parameters)")
           request_anchor = request_match.group(1)
