@@ -2057,7 +2057,7 @@ jobs:
 
           # Remember when JARVIS is waiting for the city after a weather question.
           once("private var conversationActive = false",
-               "private var conversationActive = false\\n    private var pendingWeatherCity = false",
+               "private var conversationActive = false\n    private var pendingWeatherCity = false",
                "pending weather city state")
 
           method_start = s.find("private fun handleLocalCommand(raw: String) {")
@@ -2087,7 +2087,7 @@ jobs:
               raise SystemExit("Could not uniquely locate weather city prompt")
           handler = handler.replace(
               'val message = "Which city should I check the weather for?"',
-              'pendingWeatherCity = true\\n                      val message = "Which city should I check the weather for?"',
+              'pendingWeatherCity = true\n                      val message = "Which city should I check the weather for?"',
               1
           )
           s = s[:method_start] + handler + s[method_end:]
@@ -2100,15 +2100,15 @@ jobs:
           weather = s[weather_start:weather_end]
           if weather.count("reply = message") != 1:
               raise SystemExit("Could not uniquely locate weather response assignment")
-          weather = weather.replace("reply = message", 'reply = message\\n                          saveHistory("Weather for " + city, message)', 1)
+          weather = weather.replace("reply = message", 'reply = message\n                          saveHistory("Weather for " + city, message)', 1)
           s = s[:weather_start] + weather + s[weather_end:]
 
           # Add a one-tap copy of all saved conversations.
           once("onCopyResponse = { copyResponse() },",
-               "onCopyResponse = { copyResponse() },\\n                          onCopyHistory = { copyHistory() },",
+               "onCopyResponse = { copyResponse() },\n                          onCopyHistory = { copyHistory() },",
                "history copy callback binding")
           once("onCopyResponse: () -> Unit,",
-               "onCopyResponse: () -> Unit,\\n    onCopyHistory: () -> Unit,",
+               "onCopyResponse: () -> Unit,\n    onCopyHistory: () -> Unit,",
                "history copy composable parameter")
 
           copy_anchor = "    private fun copyResponse() {"
