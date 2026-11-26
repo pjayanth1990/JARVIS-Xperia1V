@@ -864,10 +864,10 @@ jobs:
                           val humidity = current.optDouble("relative_humidity_2m", Double.NaN)
                           val wind = current.optDouble("wind_speed_10m", Double.NaN)
                           val rain = daily?.optJSONArray("precipitation_probability_max")?.optDouble(0, Double.NaN) ?: Double.NaN
-                          message = "Weather in $resolvedCity, $country: $condition, \${value(temp, " degrees Celsius")}. " +
-                              "Feels like \${value(feels, " degrees")}. Humidity \${value(humidity, " percent")}. " +
-                              "Wind \${value(wind, " kilometres per hour")}. " +
-                              (if (rain.isNaN()) "" else "Today's maximum chance of rain is \${value(rain, " percent")}. ") +
+                          message = "Weather in $resolvedCity, $country: $condition, ${value(temp, " degrees Celsius")}. " +
+                              "Feels like ${value(feels, " degrees")}. Humidity ${value(humidity, " percent")}. " +
+                              "Wind ${value(wind, " kilometres per hour")}. " +
+                              (if (rain.isNaN()) "" else "Today's maximum chance of rain is ${value(rain, " percent")}. ") +
                               "Weather data by Open-Meteo."
                       }
                   } catch (e: Exception) {
