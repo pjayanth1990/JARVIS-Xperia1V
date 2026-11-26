@@ -1717,7 +1717,7 @@ jobs:
                   }
 
           """
-          once("              private val assistantRoleLauncher =", picker + "              private val assistantRoleLauncher =", "custom model picker")
+          once("private val assistantRoleLauncher =", picker + "private val assistantRoleLauncher =", "custom model picker")
 
           once('wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)',
                'wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)\n                  wakeModelChoice = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getString("model", "HEY_JARVIS") ?: "HEY_JARVIS"\n                  customWakePhrase = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getString("custom_phrase", "My custom phrase") ?: "My custom phrase"',
