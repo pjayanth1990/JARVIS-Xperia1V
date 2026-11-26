@@ -2164,6 +2164,85 @@ jobs:
           print("Added weather-city follow-up, full-history copy, and conversation recovery")
           PY
 
+
+      - name: Enforce strict microphone privacy mode
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ["PROJECT_DIR"])
+          path = root / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          # The privacy switch is the master microphone permission inside JARVIS.
+          start = s.find("private fun requestListen() {")
+          end = s.find("private fun listenOnce() {", start)
+          if start < 0 or end < 0:
+              raise SystemExit("Could not locate manual microphone entry points")
+          request = """private fun requestListen() {
+                  if (!wakeWordEnabled) {
+                      conversationActive = false
+                      statusText = "Privacy Mode · microphone off"
+                      return
+                  }
+                  conversationActive = true
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                      == PackageManager.PERMISSION_GRANTED) {
+                      listenOnce()
+                  } else {
+                      permissionForWakeWord = false
+                      permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                  }
+              }
+
+              """
+          s = s[:start] + request + s[end:]
+
+          # Central hard stop: all paths to SpeechRecognizer must pass this guard,
+          # including wake-word callbacks, Android assistant intents and follow-ups.
+          anchor = "    private fun listenOnce() {"
+          guard = """    private fun listenOnce() {
+                  if (!wakeWordEnabled) {
+                      conversationActive = false
+                      statusText = "Privacy Mode · microphone off"
+                      return
+                  }"""
+          if s.count(anchor) != 1:
+              raise SystemExit("Could not uniquely locate listenOnce")
+          s = s.replace(anchor, guard, 1)
+
+          # Discard any late recognizer result that arrives after the user switches privacy OFF.
+          results_anchor = "override fun onResults(results: Bundle?) {"
+          results_guard = """override fun onResults(results: Bundle?) {
+                              if (!wakeWordEnabled) {
+                                  try { recognizer.cancel() } catch (_: Exception) {}
+                                  try { recognizer.destroy() } catch (_: Exception) {}
+                                  if (activeRecognizer === recognizer) activeRecognizer = null
+                                  conversationActive = false
+                                  statusText = "Privacy Mode · microphone off"
+                                  return
+                              }"""
+          if s.count(results_anchor) != 1:
+              raise SystemExit("Could not uniquely locate recognition results callback")
+          s = s.replace(results_anchor, results_guard, 1)
+
+          # Make the UI reflect the actual hardware privacy state, not just the backend guard.
+          old_button = 'Button(onClick = onListen, modifier = Modifier.fillMaxWidth()) {'
+          new_button = 'Button(onClick = onListen, enabled = wakeWordEnabled, modifier = Modifier.fillMaxWidth()) {'
+          if s.count(old_button) != 1:
+              raise SystemExit("Could not uniquely locate TAP TO SPEAK button")
+          s = s.replace(old_button, new_button, 1)
+          s = s.replace(
+              'else "Wake-word microphone is off. Tap to speak works only when requested."',
+              'else "Microphone is fully disabled. Turn the microphone switch ON to use voice commands."',
+              1
+          )
+
+          path.write_text(s)
+          print("Strict privacy guard applied to manual, automatic and late speech-recognition paths")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
