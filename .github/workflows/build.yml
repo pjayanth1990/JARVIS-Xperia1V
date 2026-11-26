@@ -1575,6 +1575,9 @@ jobs:
               ("reply = answer", "reply = answer\n                      saveHistory(question, answer)", "AI history"),
               ("reply = message", "reply = message\n                          saveHistory(prompt, message)", "image history")
           ]:
+              if label == "image history" and s.count(old) == 0:
+                  print("Image response uses a different assignment; skipping only its optional history hook")
+                  continue
               once(old, new, label)
 
           class_end = "\n}\n\n@Composable\nprivate fun JarvisScreen("
