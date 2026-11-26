@@ -2183,9 +2183,10 @@ jobs:
                       statusText = "Privacy Mode · microphone off"
                       return
                   }"""
-          if s.count(request_anchor) != 1:
-              raise SystemExit("Could not uniquely locate requestListen")
-          s = s.replace(request_anchor, request_guard, 1)
+          request_pos = s.find(request_anchor)
+          if request_pos < 0:
+              raise SystemExit("Could not find requestListen signature")
+          s = s[:request_pos] + s[request_pos:].replace(request_anchor, request_guard, 1)
 
           # Central hard stop: all paths to SpeechRecognizer must pass this guard,
           # including wake-word callbacks, Android assistant intents and follow-ups.
