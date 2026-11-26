@@ -2037,6 +2037,133 @@ jobs:
           print("Added three built-in wake phrases and custom ONNX model import/selection")
           PY
 
+
+      - name: Fix conversation continuity, weather city follow-up, and copyable history
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ["PROJECT_DIR"])
+          path = root / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          def once(old, new, label):
+              global s
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit("Could not safely update " + label + " (matches=" + str(n) + ")")
+              s = s.replace(old, new, 1)
+
+          # Remember when JARVIS is waiting for the city after a weather question.
+          once("private var conversationActive = false",
+               "private var conversationActive = false\\n    private var pendingWeatherCity = false",
+               "pending weather city state")
+
+          method_start = s.find("private fun handleLocalCommand(raw: String) {")
+          method_end = s.find("private fun batteryPercent(): Int {", method_start)
+          if method_start < 0 or method_end < 0:
+              raise SystemExit("Could not locate command handler")
+          handler = s[method_start:method_end]
+          command_line = "val command = raw.lowercase(Locale.ROOT)"
+          if handler.count(command_line) != 1:
+              raise SystemExit("Could not uniquely locate command normalisation")
+          followup = command_line + """
+                  if (pendingWeatherCity) {
+                      pendingWeatherCity = false
+                      val city = raw.trim().removePrefix("in ").removePrefix("for ").trim()
+                      if (city.isBlank()) {
+                          val message = "Please say the city name."
+                          reply = message
+                          statusText = "Ready"
+                          speak(message)
+                      } else {
+                          fetchWeatherForCity(city)
+                      }
+                      return
+                  }"""
+          handler = handler.replace(command_line, followup, 1)
+          if handler.count('val message = "Which city should I check the weather for?"') != 1:
+              raise SystemExit("Could not uniquely locate weather city prompt")
+          handler = handler.replace(
+              'val message = "Which city should I check the weather for?"',
+              'pendingWeatherCity = true\\n                      val message = "Which city should I check the weather for?"',
+              1
+          )
+          s = s[:method_start] + handler + s[method_end:]
+
+          # Save weather replies in the same persistent history list.
+          weather_start = s.find("private fun fetchWeatherForCity(city: String) {")
+          weather_end = s.find("private fun askJarvisAI(question: String) {", weather_start)
+          if weather_start < 0 or weather_end < 0:
+              raise SystemExit("Could not locate weather method boundaries")
+          weather = s[weather_start:weather_end]
+          if weather.count("reply = message") != 1:
+              raise SystemExit("Could not uniquely locate weather response assignment")
+          weather = weather.replace("reply = message", 'reply = message\\n                          saveHistory("Weather for " + city, message)', 1)
+          s = s[:weather_start] + weather + s[weather_end:]
+
+          # Add a one-tap copy of all saved conversations.
+          once("onCopyResponse = { copyResponse() },",
+               "onCopyResponse = { copyResponse() },\\n                          onCopyHistory = { copyHistory() },",
+               "history copy callback binding")
+          once("onCopyResponse: () -> Unit,",
+               "onCopyResponse: () -> Unit,\\n    onCopyHistory: () -> Unit,",
+               "history copy composable parameter")
+
+          copy_anchor = "    private fun copyResponse() {"
+          copy_method = """    private fun copyHistory() {
+                  val text = historyItems.joinToString("\\n\\n------------------------------\\n\\n")
+                  if (text.isBlank()) {
+                      Toast.makeText(this, "No history to copy", Toast.LENGTH_SHORT).show()
+                      return
+                  }
+                  val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                  clipboard.setPrimaryClip(ClipData.newPlainText("JARVIS conversation history", text))
+                  Toast.makeText(this, "Full history copied", Toast.LENGTH_SHORT).show()
+              }
+
+          """
+          once(copy_anchor, copy_method + copy_anchor, "copy history method")
+
+          old_button = 'confirmButton = { TextButton(onClick = { showHistory = false }) { Text("CLOSE") } }'
+          new_button = """confirmButton = {
+                          Row {
+                              TextButton(onClick = onCopyHistory) { Text("COPY ALL") }
+                              TextButton(onClick = { showHistory = false }) { Text("CLOSE") }
+                          }
+                      }"""
+          once(old_button, new_button, "history dialog copy button")
+
+          # Recover the continuous session after transient speech-recognition errors.
+          error_start = s.find("override fun onError(error: Int) {")
+          results_start = s.find("override fun onResults(results: Bundle?) {", error_start)
+          if error_start < 0 or results_start < 0:
+              raise SystemExit("Could not locate speech error callback")
+          error_callback = """override fun onError(error: Int) {
+                              try { recognizer.destroy() } catch (_: Exception) {}
+                              if (activeRecognizer === recognizer) activeRecognizer = null
+                              if (conversationActive && !isFinishing) {
+                                  statusText = "Conversation active · listening again…"
+                                  android.os.Handler(mainLooper).postDelayed({
+                                      if (conversationActive && !isFinishing && activeRecognizer == null) listenOnce()
+                                  }, 1000)
+                              } else if (!isFinishing && wakeWordEnabled) {
+                                  statusText = "Returning to wake-word standby"
+                                  android.os.Handler(mainLooper).postDelayed({
+                                      if (!conversationActive && !isFinishing && wakeWordEnabled) startWakeWordService()
+                                  }, 700)
+                              } else {
+                                  statusText = "Speech recognition error ($error)"
+                              }
+                          }
+                          """
+          s = s[:error_start] + error_callback + s[results_start:]
+
+          path.write_text(s)
+          print("Added weather-city follow-up, full-history copy, and conversation recovery")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
