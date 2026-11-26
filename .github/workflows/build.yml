@@ -1690,6 +1690,223 @@ jobs:
           print("Added opt-in wake-word listening, persistent Privacy Mode, and immediate microphone shutdown")
           PY
 
+      - name: Add selectable and custom wake-word models
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, re
+
+          root = Path(os.environ["PROJECT_DIR"])
+          main = root / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = main.read_text()
+
+          def once(old, new, label):
+              global s
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit("Could not safely update " + label + " (matches=" + str(n) + ")")
+              s = s.replace(old, new, 1)
+
+          once("private var activeRecognizer: SpeechRecognizer? = null",
+               "private var activeRecognizer: SpeechRecognizer? = null\n    private var wakeModelChoice by mutableStateOf(\"HEY_JARVIS\")\n    private var customWakePhrase by mutableStateOf(\"My custom phrase\")",
+               "wake model state")
+
+          picker = """              private val wakeModelPicker =
+                  registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                      if (uri != null) importCustomWakeModel(uri)
+                  }
+
+          """
+          once("              private val assistantRoleLauncher =", picker + "              private val assistantRoleLauncher =", "custom model picker")
+
+          once('wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)',
+               'wakeWordEnabled = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getBoolean("enabled", false)\n                  wakeModelChoice = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getString("model", "HEY_JARVIS") ?: "HEY_JARVIS"\n                  customWakePhrase = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).getString("custom_phrase", "My custom phrase") ?: "My custom phrase"',
+               "wake model preferences")
+
+          once("onWakeWordToggle = { updateWakeWordSetting(it) },",
+               """onWakeWordToggle = { updateWakeWordSetting(it) },
+                          wakeModelChoice = wakeModelChoice,
+                          onWakeModelSelected = { selectWakeModel(it) },
+                          customWakePhrase = customWakePhrase,
+                          onCustomWakePhraseChange = { updateCustomWakePhrase(it) },
+                          onImportCustomWakeModel = { wakeModelPicker.launch(arrayOf("*/*")) },""",
+               "wake model screen arguments")
+
+          once("onWakeWordToggle: (Boolean) -> Unit,",
+               """onWakeWordToggle: (Boolean) -> Unit,
+              wakeModelChoice: String,
+              onWakeModelSelected: (String) -> Unit,
+              customWakePhrase: String,
+              onCustomWakePhraseChange: (String) -> Unit,
+              onImportCustomWakeModel: () -> Unit,""",
+               "wake model screen parameters")
+
+          methods = r"""
+              private fun selectWakeModel(model: String) {
+                  wakeModelChoice = model
+                  getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putString("model", model).apply()
+                  if (model == "CUSTOM" && !java.io.File(filesDir, "custom_wakeword.onnx").isFile) {
+                      statusText = "Import a trained custom ONNX model before testing this phrase"
+                      return
+                  }
+                  statusText = "Wake phrase changed to " + when (model) {
+                      "ALEXA" -> "Alexa"
+                      "HEY_MYCROFT" -> "Hey Mycroft"
+                      "CUSTOM" -> customWakePhrase
+                      else -> "Hey JARVIS"
+                  }
+                  if (wakeWordEnabled) {
+                      stopService(Intent(this, WakeWordService::class.java))
+                      startWakeWordService()
+                  }
+              }
+
+              private fun updateCustomWakePhrase(value: String) {
+                  customWakePhrase = value
+                  getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putString("custom_phrase", value).apply()
+              }
+
+              private fun importCustomWakeModel(uri: android.net.Uri) {
+                  try {
+                      val input = contentResolver.openInputStream(uri) ?: error("Could not open selected model")
+                      val modelFile = java.io.File(filesDir, "custom_wakeword.onnx")
+                      input.use { source ->
+                          modelFile.outputStream().use { target -> source.copyTo(target) }
+                      }
+                      if (modelFile.length() <= 0L || modelFile.length() > 30L * 1024L * 1024L) {
+                          modelFile.delete()
+                          error("Model must be between 1 byte and 30 MB")
+                      }
+                      wakeModelChoice = "CUSTOM"
+                      getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                          .putString("model", "CUSTOM").apply()
+                      statusText = "Custom model imported. Say your trained phrase to test it."
+                      if (wakeWordEnabled) {
+                          stopService(Intent(this, WakeWordService::class.java))
+                          startWakeWordService()
+                      }
+                  } catch (e: Exception) {
+                      statusText = "Custom model import failed: " + (e.message ?: e.javaClass.simpleName)
+                  }
+              }
+          """
+          anchor = "    private fun startWakeWordService() {"
+          once(anchor, methods + "\n" + anchor, "wake model methods")
+
+          # Insert a dedicated settings card before voice personalisation.
+          target = 'Text("VOICE PERSONALISATION"'
+          pos = s.find(target)
+          if pos < 0:
+              raise SystemExit("Could not locate voice personalisation card")
+          item_pos = s.rfind("item {", 0, pos)
+          if item_pos < 0:
+              raise SystemExit("Could not locate LazyColumn item for voice settings")
+          card = r'''                          item {
+                              Card(shape = RoundedCornerShape(18.dp)) {
+                                  Column(
+                                      Modifier.padding(16.dp),
+                                      verticalArrangement = Arrangement.spacedBy(10.dp)
+                                  ) {
+                                      Text("WAKE WORD SETTINGS", color = cyan, style = MaterialTheme.typography.titleMedium)
+                                      Text("Choose the phrase JARVIS listens for while wake-word mode is enabled.")
+                                      var wakeModelExpanded by remember { mutableStateOf(false) }
+                                      val wakeModelLabel = when (wakeModelChoice) {
+                                          "ALEXA" -> "Alexa"
+                                          "HEY_MYCROFT" -> "Hey Mycroft"
+                                          "CUSTOM" -> customWakePhrase.ifBlank { "Custom phrase" }
+                                          else -> "Hey JARVIS"
+                                      }
+                                      Box {
+                                          OutlinedButton(
+                                              onClick = { wakeModelExpanded = true },
+                                              modifier = Modifier.fillMaxWidth()
+                                          ) { Text(wakeModelLabel) }
+                                          DropdownMenu(
+                                              expanded = wakeModelExpanded,
+                                              onDismissRequest = { wakeModelExpanded = false }
+                                          ) {
+                                              DropdownMenuItem(text = { Text("Hey JARVIS") }, onClick = {
+                                                  wakeModelExpanded = false
+                                                  onWakeModelSelected("HEY_JARVIS")
+                                              })
+                                              DropdownMenuItem(text = { Text("Alexa") }, onClick = {
+                                                  wakeModelExpanded = false
+                                                  onWakeModelSelected("ALEXA")
+                                              })
+                                              DropdownMenuItem(text = { Text("Hey Mycroft") }, onClick = {
+                                                  wakeModelExpanded = false
+                                                  onWakeModelSelected("HEY_MYCROFT")
+                                              })
+                                              DropdownMenuItem(text = { Text("Custom trained phrase…") }, onClick = {
+                                                  wakeModelExpanded = false
+                                                  onWakeModelSelected("CUSTOM")
+                                              })
+                                          }
+                                      }
+                                      if (wakeModelChoice == "CUSTOM") {
+                                          OutlinedTextField(
+                                              value = customWakePhrase,
+                                              onValueChange = onCustomWakePhraseChange,
+                                              label = { Text("Name of your custom phrase") },
+                                              singleLine = true,
+                                              modifier = Modifier.fillMaxWidth()
+                                          )
+                                          OutlinedButton(
+                                              onClick = onImportCustomWakeModel,
+                                              modifier = Modifier.fillMaxWidth()
+                                          ) { Text("IMPORT CUSTOM ONNX MODEL") }
+                                          Text(
+                                              "Important: this name is only a label. A trained openWakeWord-compatible ONNX model for the exact phrase is required; typing a phrase alone cannot create its detector.",
+                                              style = MaterialTheme.typography.bodySmall,
+                                              color = Color.LightGray
+                                          )
+                                      }
+                                      Text(
+                                          "The three built-in phrases and custom model detection run on-device.",
+                                          style = MaterialTheme.typography.bodySmall,
+                                          color = Color.LightGray
+                                      )
+                                  }
+                              }
+                          }
+
+          '''
+          s = s[:item_pos] + card + s[item_pos:]
+
+          main.write_text(s)
+
+          # Configure the selected model in the foreground service.
+          service = root / "app/src/main/java/com/jps/jarvis/WakeWordService.kt"
+          w = service.read_text()
+          old = """detector = OpenWakeWord.Builder(applicationContext)
+                              .setModel(OpenWakeWord.BuiltInModel.HEY_JARVIS)
+                              .setThreshold(0.5f)
+                              .build()"""
+          new = """val modelPrefs = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)
+                          val selectedModel = modelPrefs.getString("model", "HEY_JARVIS") ?: "HEY_JARVIS"
+                          val modelBuilder = OpenWakeWord.Builder(applicationContext).setThreshold(0.5f)
+                          when (selectedModel) {
+                              "ALEXA" -> modelBuilder.setModel(OpenWakeWord.BuiltInModel.ALEXA)
+                              "HEY_MYCROFT" -> modelBuilder.setModel(OpenWakeWord.BuiltInModel.HEY_MYCROFT)
+                              "CUSTOM" -> {
+                                  val customFile = java.io.File(filesDir, "custom_wakeword.onnx")
+                                  if (!customFile.isFile || customFile.length() <= 0L) {
+                                      throw IllegalStateException("Custom ONNX model has not been imported")
+                                  }
+                                  modelBuilder.setModelBytes(customFile.readBytes())
+                              }
+                              else -> modelBuilder.setModel(OpenWakeWord.BuiltInModel.HEY_JARVIS)
+                          }
+                          detector = modelBuilder.build()"""
+          if w.count(old) != 1:
+              raise SystemExit("Could not safely replace built-in wake-word model selection")
+          w = w.replace(old, new, 1)
+          service.write_text(w)
+          print("Added three built-in wake phrases and custom ONNX model import/selection")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
