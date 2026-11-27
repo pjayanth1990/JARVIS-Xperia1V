@@ -2373,6 +2373,10 @@ jobs:
         with:
           gradle-version: '8.13'
 
+      - name: Inspect generated weather Kotlin
+        run: |
+          nl -ba "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/MainActivity.kt" | sed -n '805,830p'
+
       - name: Build JARVIS APK
         run: |
           cd "$PROJECT_DIR"
