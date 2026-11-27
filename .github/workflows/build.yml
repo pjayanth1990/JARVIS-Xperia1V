@@ -2291,10 +2291,10 @@ jobs:
               }
           '''
           if "private val wakeWordReceiver = object" not in s:
-              anchor = "              override fun onCreate(savedInstanceState: Bundle?) {"
+              anchor = "override fun onCreate(savedInstanceState: Bundle?) {"
               if s.count(anchor) != 1:
-                  raise SystemExit("Could not find MainActivity lifecycle insertion point")
-              s = s.replace(anchor, receiver + "\n" + anchor, 1)
+                  raise SystemExit("Could not find unique MainActivity onCreate insertion point (matches=" + str(s.count(anchor)) + ")")
+              s = s.replace(anchor, receiver + "\n              " + anchor, 1)
 
           old = '                          val launch = Intent(this, MainActivity::class.java).apply {'
           new = '''                          if (getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)
@@ -2305,7 +2305,7 @@ jobs:
                           }
                           val launch = Intent(this, MainActivity::class.java).apply {'''
           if w.count(old) != 1:
-              raise SystemExit("Could not uniquely locate wake-word activity handoff")
+              raise SystemExit("Could not uniquely locate wake-word activity handoff (matches=" + str(w.count(old)) + ")")
           w = w.replace(old, new, 1)
 
           old_start = '''                          detector?.start {
@@ -2343,23 +2343,16 @@ jobs:
                           }
                           val latitude = place.getDouble("latitude")'''
           if s.count(old_place) != 1:
-              raise SystemExit("Could not uniquely locate weather geocoding result selection")
+              raise SystemExit("Could not uniquely locate weather geocoding result selection (matches=" + str(s.count(old_place)) + ")")
           s = s.replace(old_place, new_place, 1)
 
           old_city = '''                          val resolvedCity = place.optString("name", city)
                           val country = place.optString("country", "")'''
           new_city = '''                          val resolvedCity = if (isBengaluru) "Bengaluru" else place.optString("name", city)
-                          val state = place.optString("admin1", "")
                           val country = place.optString("country", "")'''
           if s.count(old_city) != 1:
               raise SystemExit("Could not uniquely locate resolved weather place")
           s = s.replace(old_city, new_city, 1)
-
-          old_message = 'message = "Weather in $resolvedCity, $country: $condition,'
-          new_message = 'message = "Weather in $resolvedCity\${if (state.isNotBlank()) ", $state" else ""}, $country: $condition,'
-          if s.count(old_message) != 1:
-              raise SystemExit("Could not uniquely locate weather response label")
-          s = s.replace(old_message, new_message, 1)
 
           main.write_text(s)
           service.write_text(w)
