@@ -14,7 +14,11 @@ class PlanValidator(
         if (request.requestId.isBlank() || plan.requestId.isBlank() || request.requestId != plan.requestId) errors += "request_id_mismatch"
         if (plan.taskId.isBlank()) errors += "missing_task_id"
         if (plan.summary.length > maxSummaryCharacters) errors += "summary_too_long"
-        if (plan.steps.size > maxSteps) errors += "too_many_steps"
+        if (request.inputText.length > 4000) errors += "request_input_too_long"
+        if (plan.steps.size > maxSteps) {
+            errors += "too_many_steps"
+            return PlanValidationResult(errors)
+        }
         if (plan.needsUserInput && plan.steps.isNotEmpty()) errors += "steps_present_while_waiting_for_input"
         val ids = plan.steps.map { it.stepId }
         if (ids.any { it.isBlank() } || ids.distinct().size != ids.size) errors += "invalid_or_duplicate_step_id"
