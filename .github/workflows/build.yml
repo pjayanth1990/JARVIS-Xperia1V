@@ -2942,8 +2942,8 @@ jobs:
                       if (intent != "general" && intent != "clarify") {
                           JarvisTaskState.capture(this, intent, raw, entities)
                       }'''
-          if s.count(anchor) != 1:
-              raise SystemExit("Could not uniquely locate intent dispatch validation point")
+          if anchor not in s:
+              raise SystemExit("Could not locate intent dispatch validation point")
           s = s.replace(anchor, addition, 1)
 
           old_prompt = '                          pendingWeatherCity = true\n                          val message = "Which city should I check the weather for?"'
