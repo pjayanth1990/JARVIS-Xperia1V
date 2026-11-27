@@ -2296,17 +2296,21 @@ jobs:
                   raise SystemExit("Could not find unique MainActivity onCreate insertion point (matches=" + str(s.count(anchor)) + ")")
               s = s.replace(anchor, receiver + "\n              " + anchor, 1)
 
-          old = '                          val launch = Intent(this, MainActivity::class.java).apply {'
-          new = '''                          if (getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)
-                                  .getBoolean("app_foreground", false)) {
-                              sendBroadcast(Intent(ACTION_WAKE_WORD).setPackage(packageName))
-                              manager.notify(NOTIFICATION_ID, makeNotification("Wake phrase detected — starting voice input"))
-                              return@post
-                          }
-                          val launch = Intent(this, MainActivity::class.java).apply {'''
-          if w.count(old) != 1:
-              raise SystemExit("Could not uniquely locate wake-word activity handoff (matches=" + str(w.count(old)) + ")")
-          w = w.replace(old, new, 1)
+          import re
+          handoff = re.search(r'(?m)^(\s*)val launch = Intent\(this, MainActivity::class.java\)\.apply \{', w)
+          if not handoff:
+              raise SystemExit("Could not locate wake-word activity handoff")
+          indent = handoff.group(1)
+          replacement = (
+              indent + 'if (getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)\\n' +
+              indent + '        .getBoolean("app_foreground", false)) {\\n' +
+              indent + '    sendBroadcast(Intent(ACTION_WAKE_WORD).setPackage(packageName))\\n' +
+              indent + '    manager.notify(NOTIFICATION_ID, makeNotification("Wake phrase detected — starting voice input"))\\n' +
+              indent + '    return@post\\n' +
+              indent + '}\\n' +
+              indent + 'val launch = Intent(this, MainActivity::class.java).apply {'
+          )
+          w = w[:handoff.start()] + replacement + w[handoff.end():]
 
           old_start = '''                          detector?.start {
                               if (!detectionHandled) handleDetection()
