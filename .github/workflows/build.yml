@@ -2886,54 +2886,9 @@ jobs:
           }
           KOTLIN
 
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
+          echo "Capability registry and task-state source added; integration will be performed in a separate, verified step."
 
-          root = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis"
-          context_file = root / "JarvisConversationContext.kt"
-          s = context_file.read_text()
-          old_sig = "fun buildMessages(history: List<String>, currentInput: String): JSONArray {"
-          new_sig = "fun buildMessages(history: List<String>, currentInput: String, taskSummary: String = \"\"): JSONArray {"
-          if s.count(old_sig) != 1:
-              raise SystemExit("Could not uniquely locate conversation context method")
-          s = s.replace(old_sig, new_sig, 1)
-          anchor = "val turns = history.asReversed()"
-          addition = '''if (taskSummary.isNotBlank()) {
-                      messages.put(
-                          JSONObject()
-                              .put("role", "system")
-                              .put("content", "Current task context for interpreting follow-ups: " + taskSummary +
-                                  ". Treat this as context only; do not claim any step ran unless a tool result confirms it.")
-                      )
-                  }
 
-                  val turns = history.asReversed()'''
-          if s.count(anchor) != 1:
-              raise SystemExit("Could not uniquely locate conversation turn assembly")
-          s = s.replace(anchor, addition, 1)
-          context_file.write_text(s)
-
-          main_file = root / "MainActivity.kt"
-          s = main_file.read_text()
-          old_call = "val messages = JarvisConversationContext.buildMessages(historySnapshot, raw)"
-          new_call = "val messages = JarvisConversationContext.buildMessages(historySnapshot, raw, JarvisTaskState.contextSummary(this))"
-          if s.count(old_call) != 1:
-              raise SystemExit("Could not uniquely locate intent context call")
-          s = s.replace(old_call, new_call, 1)
-
-          import re
-          pattern = r'(?m)^[ \\t]*val clarification = data\\.optString\\("clarification"\\)\\.trim\\(\\)[ \\t]*
-
-          old_prompt = '                          pendingWeatherCity = true\n                          val message = "Which city should I check the weather for?"'
-          new_prompt = '                          pendingWeatherCity = true\n                          val message = "Which city should I check the weather for?"\n                          JarvisTaskState.awaitInput(this, message)'
-          if s.count(old_prompt) != 1:
-              raise SystemExit("Could not locate weather clarification state")
-          s = s.replace(old_prompt, new_prompt, 1)
-
-          main_file.write_text(s)
-          print("Added allow-listed capability metadata, persistent active-task state, and task-aware intent context.")
-          PY
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
