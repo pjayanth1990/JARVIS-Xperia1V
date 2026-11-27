@@ -2294,7 +2294,7 @@ jobs:
               brace_pos = s.find("{", class_pos)
               if class_pos < 0 or brace_pos < 0:
                   raise SystemExit("Could not locate MainActivity class opening brace")
-              s = s[:brace_pos + 1] + "\\n" + receiver + s[brace_pos + 1:]
+              s = s[:brace_pos + 1] + "\n" + receiver + s[brace_pos + 1:]
 
           # Model selection is already applied by the selectable-model step above.
           # Verify it remains preference-driven; never overwrite the user's saved choice.
