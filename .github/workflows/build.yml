@@ -2290,10 +2290,11 @@ jobs:
               }
           '''
           if "private val wakeWordReceiver = object" not in s:
-              class_match = re.search(r"(?m)^(\\s*class MainActivity[^\\n]*\\{)", s)
-              if not class_match:
-                  raise SystemExit("Could not locate MainActivity class declaration")
-              s = s[:class_match.end()] + "\\n" + receiver + s[class_match.end():]
+              class_pos = s.find("class MainActivity")
+              brace_pos = s.find("{", class_pos)
+              if class_pos < 0 or brace_pos < 0:
+                  raise SystemExit("Could not locate MainActivity class opening brace")
+              s = s[:brace_pos + 1] + "\\n" + receiver + s[brace_pos + 1:]
 
           # Model selection is already applied by the selectable-model step above.
           # Verify it remains preference-driven; never overwrite the user's saved choice.
