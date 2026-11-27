@@ -2249,10 +2249,10 @@ jobs:
           # speech recognition without relying on a restricted background Activity launch.
           for imp in ("import android.content.BroadcastReceiver", "import android.content.IntentFilter"):
               if imp not in s:
-                  anchor = "import android.content.Intent\\n"
+                  anchor = "import android.content.Intent\n"
                   if anchor not in s:
                       raise SystemExit("Could not safely add Android broadcast imports")
-                  s = s.replace(anchor, anchor + imp + "\\n", 1)
+                  s = s.replace(anchor, anchor + imp + "\n", 1)
 
           receiver = r'''
               private var wakeWordReceiverRegistered = false
@@ -2293,7 +2293,7 @@ jobs:
               anchor = "override fun onCreate(savedInstanceState: Bundle?) {"
               if s.count(anchor) != 1:
                   raise SystemExit("Could not uniquely locate MainActivity lifecycle insertion point")
-              s = s.replace(anchor, receiver + "\\n              " + anchor, 1)
+              s = s.replace(anchor, receiver + "\n              " + anchor, 1)
 
           # Read the persisted model choice. Keep Hey JARVIS selected unless the
           # user explicitly selected another supported model in app settings.
@@ -2323,31 +2323,31 @@ jobs:
 
           # For foreground use, broadcast directly to the registered activity.
           # Keep the existing notification/PendingIntent fallback for background use.
-          handoff = re.search(r'(?m)^(\\s*)val launch = Intent\\(this, MainActivity::class.java\\)\\.apply \\{', w)
+          handoff = re.search(r'(?m)^(\s*)val launch = Intent\\(this, MainActivity::class.java\\)\\.apply \\{', w)
           if not handoff:
               raise SystemExit("Could not locate wake-word activity handoff")
           indent = handoff.group(1)
           broadcast = (
-              indent + 'if (getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)\\n' +
-              indent + '        .getBoolean("app_foreground", false)) {\\n' +
-              indent + '    sendBroadcast(Intent(ACTION_WAKE_WORD).setPackage(packageName))\\n' +
-              indent + '    manager.notify(NOTIFICATION_ID, makeNotification("Wake phrase detected — starting voice input"))\\n' +
-              indent + '    return@post\\n' +
-              indent + '}\\n'
+              indent + 'if (getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)\n' +
+              indent + '        .getBoolean("app_foreground", false)) {\n' +
+              indent + '    sendBroadcast(Intent(ACTION_WAKE_WORD).setPackage(packageName))\n' +
+              indent + '    manager.notify(NOTIFICATION_ID, makeNotification("Wake phrase detected — starting voice input"))\n' +
+              indent + '    return@post\n' +
+              indent + '}\n'
           )
           w = w[:handoff.start()] + broadcast + w[handoff.start():]
 
           # Request multiple geocoding candidates. Never hardcode a particular city
           # or silently choose an unrelated town/country when the name is ambiguous.
           geo_pattern = re.compile(
-              r'(?m)^(?P<i>[ \\t]*)val encodedCity = .*?\\n(?P=i)val geoUrl = .*?$'
+              r'(?m)^(?P<i>[ \t]*)val encodedCity = .*?\n(?P=i)val geoUrl = .*?$'
           )
           geo_matches = list(geo_pattern.finditer(s))
           if len(geo_matches) != 1:
               raise SystemExit("Could not uniquely locate the generated city geocoding block")
           i = geo_matches[0].group("i")
           geo_replacement = (
-              i + 'val encodedCity = java.net.URLEncoder.encode(city.trim(), "UTF-8")\\n' +
+              i + 'val encodedCity = java.net.URLEncoder.encode(city.trim(), "UTF-8")\n' +
               i + 'val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=10&language=en&format=json"'
           )
           s = geo_pattern.sub(lambda _: geo_replacement, s, count=1)
