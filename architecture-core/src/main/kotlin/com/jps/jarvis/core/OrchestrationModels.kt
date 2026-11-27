@@ -4,7 +4,7 @@ package com.jps.jarvis.core
 object ContractVersion { const val CURRENT = "1.0" }
 enum class ExecutionOwner { ANDROID, CLOUD }
 enum class TaskStatus { PLANNED, NEEDS_INPUT, AWAITING_APPROVAL, RUNNING, SUCCEEDED, PARTIALLY_SUCCEEDED, FAILED, CANCELLED }
-enum class StepStatus { SUCCEEDED, FAILED, NEEDS_INPUT, DENIED, UNAVAILABLE, TIMED_OUT, CANCELLED }
+enum class StepStatus { SUCCEEDED, FAILED, NEEDS_INPUT, DENIED, UNAVAILABLE, TIMED_OUT, CANCELLED, SKIPPED }
 
 data class AssistantRequest(
     val schemaVersion: String = ContractVersion.CURRENT,
