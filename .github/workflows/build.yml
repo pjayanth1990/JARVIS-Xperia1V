@@ -2113,7 +2113,7 @@ jobs:
 
           copy_anchor = "    private fun copyResponse() {"
           copy_method = """    private fun copyHistory() {
-                  val text = historyItems.joinToString("\\n\\n------------------------------\\n\\n")
+                  val text = historyItems.joinToString("\n\n------------------------------\n\n")
                   if (text.isBlank()) {
                       Toast.makeText(this, "No history to copy", Toast.LENGTH_SHORT).show()
                       return
@@ -2302,27 +2302,22 @@ jobs:
               raise SystemExit("Could not locate wake-word activity handoff")
           indent = handoff.group(1)
           replacement = (
-              indent + 'if (getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)\\n' +
-              indent + '        .getBoolean("app_foreground", false)) {\\n' +
-              indent + '    sendBroadcast(Intent(ACTION_WAKE_WORD).setPackage(packageName))\\n' +
-              indent + '    manager.notify(NOTIFICATION_ID, makeNotification("Wake phrase detected — starting voice input"))\\n' +
-              indent + '    return@post\\n' +
-              indent + '}\\n' +
+              indent + 'if (getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)\n' +
+              indent + '        .getBoolean("app_foreground", false)) {\n' +
+              indent + '    sendBroadcast(Intent(ACTION_WAKE_WORD).setPackage(packageName))\n' +
+              indent + '    manager.notify(NOTIFICATION_ID, makeNotification("Wake phrase detected — starting voice input"))\n' +
+              indent + '    return@post\n' +
+              indent + '}\n' +
               indent + 'val launch = Intent(this, MainActivity::class.java).apply {'
           )
           w = w[:handoff.start()] + replacement + w[handoff.end():]
 
-          old_start = '''                          detector?.start {
-                              if (!detectionHandled) handleDetection()
-                          }'''
-          new_start = '''                          detector?.start {
-                              if (!detectionHandled) handleDetection()
-                          }
-                          getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
-                              .putString("startup_stage", "detector_running").apply()'''
-          if w.count(old_start) != 1:
+          detector_start = re.search(r'(?m)^(\\s*)detector\\?\\.start \\{\\n\\s*if \\(!detectionHandled\\) handleDetection\\(\\)\\n\\s*\\}', w)
+          if not detector_start:
               raise SystemExit("Could not locate detector start call")
-          w = w.replace(old_start, new_start, 1)
+          detector_indent = detector_start.group(1)
+          detector_replacement = detector_start.group(0) + "\\n" + detector_indent + 'getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()\\n' + detector_indent + '    .putString("startup_stage", "detector_running").apply()'
+          w = w[:detector_start.start()] + detector_replacement + w[detector_start.end():]
 
           old_geo = '''                      val encodedCity = java.net.URLEncoder.encode(city, "UTF-8")
                       val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=1&language=en&format=json"'''
