@@ -2233,6 +2233,139 @@ jobs:
           print("Strict privacy guard applied to manual, automatic and late speech-recognition paths")
           PY
 
+      - name: Fix automatic wake-word handoff and Bengaluru weather resolution
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ["PROJECT_DIR"])
+          main = root / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          service = root / "app/src/main/java/com/jps/jarvis/WakeWordService.kt"
+          s = main.read_text()
+          w = service.read_text()
+
+          for imp in [
+              "import android.content.BroadcastReceiver",
+              "import android.content.IntentFilter"
+          ]:
+              if imp not in s:
+                  s = s.replace("import android.content.Intent\n", "import android.content.Intent\n" + imp + "\n", 1)
+
+          receiver = r'''
+              private var wakeWordReceiverRegistered = false
+              private val wakeWordReceiver = object : BroadcastReceiver() {
+                  override fun onReceive(context: android.content.Context?, intent: Intent?) {
+                      if (intent?.action == WakeWordService.ACTION_WAKE_WORD && wakeWordEnabled) {
+                          if (activeRecognizer == null) requestListen(fromWakeWord = true)
+                      }
+                  }
+              }
+
+              override fun onStart() {
+                  super.onStart()
+                  getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putBoolean("app_foreground", true).apply()
+                  if (!wakeWordReceiverRegistered) {
+                      try {
+                          ContextCompat.registerReceiver(
+                              this, wakeWordReceiver,
+                              IntentFilter(WakeWordService.ACTION_WAKE_WORD),
+                              ContextCompat.RECEIVER_NOT_EXPORTED
+                          )
+                          wakeWordReceiverRegistered = true
+                      } catch (e: Exception) {
+                          statusText = "Wake-word receiver registration failed: " + e.javaClass.simpleName
+                      }
+                  }
+              }
+
+              override fun onStop() {
+                  getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                      .putBoolean("app_foreground", false).apply()
+                  if (wakeWordReceiverRegistered) {
+                      try { unregisterReceiver(wakeWordReceiver) } catch (_: Exception) {}
+                      wakeWordReceiverRegistered = false
+                  }
+                  super.onStop()
+              }
+          '''
+          if "private val wakeWordReceiver = object" not in s:
+              anchor = "              override fun onCreate(savedInstanceState: Bundle?) {"
+              if s.count(anchor) != 1:
+                  raise SystemExit("Could not find MainActivity lifecycle insertion point")
+              s = s.replace(anchor, receiver + "\n" + anchor, 1)
+
+          old = '                          val launch = Intent(this, MainActivity::class.java).apply {'
+          new = '''                          if (getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)
+                                  .getBoolean("app_foreground", false)) {
+                              sendBroadcast(Intent(ACTION_WAKE_WORD).setPackage(packageName))
+                              manager.notify(NOTIFICATION_ID, makeNotification("Wake phrase detected — starting voice input"))
+                              return@post
+                          }
+                          val launch = Intent(this, MainActivity::class.java).apply {'''
+          if w.count(old) != 1:
+              raise SystemExit("Could not uniquely locate wake-word activity handoff")
+          w = w.replace(old, new, 1)
+
+          old_start = '''                          detector?.start {
+                              if (!detectionHandled) handleDetection()
+                          }'''
+          new_start = '''                          detector?.start {
+                              if (!detectionHandled) handleDetection()
+                          }
+                          getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()
+                              .putString("startup_stage", "detector_running").apply()'''
+          if w.count(old_start) != 1:
+              raise SystemExit("Could not locate detector start call")
+          w = w.replace(old_start, new_start, 1)
+
+          old_geo = '''                      val encodedCity = java.net.URLEncoder.encode(city, "UTF-8")
+                      val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=1&language=en&format=json"'''
+          new_geo = '''                      val isBengaluru = city.trim().equals("bangalore", ignoreCase = true) ||
+                          city.trim().equals("bengaluru", ignoreCase = true)
+                      val lookupCity = if (isBengaluru) "Bengaluru" else city.trim()
+                      val encodedCity = java.net.URLEncoder.encode(lookupCity, "UTF-8")
+                      val countryFilter = if (isBengaluru) "&countryCode=IN" else ""
+                      val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=10&language=en&format=json$countryFilter"'''
+          if s.count(old_geo) != 1:
+              raise SystemExit("Could not uniquely locate weather geocoding URL")
+          s = s.replace(old_geo, new_geo, 1)
+
+          old_place = '''                          val place = results.getJSONObject(0)
+                          val latitude = place.getDouble("latitude")'''
+          new_place = '''                          val place = if (isBengaluru) {
+                              (0 until results.length()).map { results.getJSONObject(it) }
+                                  .firstOrNull { it.optString("country_code") == "IN" }
+                                  ?: results.getJSONObject(0)
+                          } else {
+                              results.getJSONObject(0)
+                          }
+                          val latitude = place.getDouble("latitude")'''
+          if s.count(old_place) != 1:
+              raise SystemExit("Could not uniquely locate weather geocoding result selection")
+          s = s.replace(old_place, new_place, 1)
+
+          old_city = '''                          val resolvedCity = place.optString("name", city)
+                          val country = place.optString("country", "")'''
+          new_city = '''                          val resolvedCity = if (isBengaluru) "Bengaluru" else place.optString("name", city)
+                          val state = place.optString("admin1", "")
+                          val country = place.optString("country", "")'''
+          if s.count(old_city) != 1:
+              raise SystemExit("Could not uniquely locate resolved weather place")
+          s = s.replace(old_city, new_city, 1)
+
+          old_message = 'message = "Weather in $resolvedCity, $country: $condition,'
+          new_message = 'message = "Weather in $resolvedCity\${if (state.isNotBlank()) ", $state" else ""}, $country: $condition,'
+          if s.count(old_message) != 1:
+              raise SystemExit("Could not uniquely locate weather response label")
+          s = s.replace(old_message, new_message, 1)
+
+          main.write_text(s)
+          service.write_text(w)
+          print("Added automatic foreground wake-word handoff and India-specific Bengaluru geocoding")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
