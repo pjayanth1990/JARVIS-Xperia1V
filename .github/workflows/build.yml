@@ -2323,7 +2323,7 @@ jobs:
 
           # For foreground use, broadcast directly to the registered activity.
           # Keep the existing notification/PendingIntent fallback for background use.
-          handoff = re.search(r'(?m)^(\s*)val launch = Intent\\(this, MainActivity::class.java\\)\\.apply \\{', w)
+          handoff = re.search(r'(?m)^(\s*)val launch = Intent\(this, MainActivity::class.java\)\.apply \{', w)
           if not handoff:
               raise SystemExit("Could not locate wake-word activity handoff")
           indent = handoff.group(1)
