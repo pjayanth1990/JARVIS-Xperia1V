@@ -2368,6 +2368,23 @@ jobs:
           service.write_text(w)
           print("Updated selected wake-word model handling, foreground wake handoff, and ambiguity-safe city geocoding")
           PY
+      - name: Keep ambiguous weather replies in the active weather conversation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+          old = 'if (exactMatches.isEmpty() || labels.size > 1) {'
+          new = 'if (exactMatches.isEmpty() || labels.size > 1) {\n                              pendingWeatherCity = true'
+          if s.count(old) != 1:
+              raise SystemExit("Could not uniquely locate weather ambiguity branch")
+          s = s.replace(old, new, 1)
+          path.write_text(s)
+          print("Weather clarification now keeps the next spoken city in the pending weather flow")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
