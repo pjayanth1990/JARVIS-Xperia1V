@@ -2399,7 +2399,7 @@ jobs:
                           var regionHint = ""
                           var searchText = city.trim()
                           while ((results == null || results.length() == 0) && searchText.contains(" ")) {
-                              val parts = searchText.split(Regex("\\s+"))
+                              val parts = searchText.split(Regex("\\\\s+"))
                               regionHint = (listOf(parts.last()) + regionHint.split(" ").filter { it.isNotBlank() })
                                   .joinToString(" ").trim()
                               searchText = parts.dropLast(1).joinToString(" ")
@@ -2426,7 +2426,7 @@ jobs:
                           }
                           val rankedCandidates = if (exactMatches.isNotEmpty()) exactMatches else candidates"""
           new = """val candidates = (0 until results.length()).map { results.getJSONObject(it) }
-                          val hintTokens = regionHint.split(Regex("\\s+")).filter { it.isNotBlank() }
+                          val hintTokens = regionHint.split(Regex("\\\\s+")).filter { it.isNotBlank() }
                           val regionMatches = candidates.filter { item ->
                               val metadata = (item.optString("admin1") + " " + item.optString("country")).lowercase(Locale.ROOT)
                               hintTokens.all { metadata.contains(it.lowercase(Locale.ROOT)) }
