@@ -2290,36 +2290,15 @@ jobs:
               }
           '''
           if "private val wakeWordReceiver = object" not in s:
-              anchor = "override fun onCreate(savedInstanceState: Bundle?) {"
-              if s.count(anchor) != 1:
-                  raise SystemExit("Could not uniquely locate MainActivity lifecycle insertion point")
-              s = s.replace(anchor, receiver + "\n              " + anchor, 1)
+              class_match = re.search(r"(?m)^(\\s*class MainActivity[^\\n]*\\{)", s)
+              if not class_match:
+                  raise SystemExit("Could not locate MainActivity class declaration")
+              s = s[:class_match.end()] + "\\n" + receiver + s[class_match.end():]
 
-          # Read the persisted model choice. Keep Hey JARVIS selected unless the
-          # user explicitly selected another supported model in app settings.
-          model_old = r'''detector = OpenWakeWord.Builder(applicationContext)
-                              .setModel(OpenWakeWord.BuiltInModel.HEY_JARVIS)
-                              .setThreshold(0.5f)
-                              .build()'''
-          model_new = r'''val selectedModel = getSharedPreferences("jarvis_wake_word", MODE_PRIVATE)
-                              .getString("model", "HEY_JARVIS") ?: "HEY_JARVIS"
-                          val detectorBuilder = OpenWakeWord.Builder(applicationContext)
-                          when (selectedModel) {
-                              "ALEXA" -> detectorBuilder.setModel(OpenWakeWord.BuiltInModel.ALEXA)
-                              "HEY_MYCROFT" -> detectorBuilder.setModel(OpenWakeWord.BuiltInModel.HEY_MYCROFT)
-                              "CUSTOM" -> {
-                                  val customFile = java.io.File(filesDir, "custom_wakeword.onnx")
-                                  if (!customFile.isFile || customFile.length() == 0L) {
-                                      throw IllegalStateException("Selected custom wake-word model is missing")
-                                  }
-                                  detectorBuilder.setModelBytes(customFile.readBytes())
-                              }
-                              else -> detectorBuilder.setModel(OpenWakeWord.BuiltInModel.HEY_JARVIS)
-                          }
-                          detector = detectorBuilder.setThreshold(0.5f).build()'''
-          if w.count(model_old) != 1:
-              raise SystemExit("Could not uniquely locate wake-word model initialization")
-          w = w.replace(model_old, model_new, 1)
+          # Model selection is already applied by the selectable-model step above.
+          # Verify it remains preference-driven; never overwrite the user's saved choice.
+          if 'getString("model", "HEY_JARVIS")' not in w or "selectedModel" not in w:
+              raise SystemExit("Wake-word service is not using the saved model selection")
 
           # For foreground use, broadcast directly to the registered activity.
           # Keep the existing notification/PendingIntent fallback for background use.
@@ -2367,7 +2346,7 @@ jobs:
                               return listOf(name, region, countryName).filter { it.isNotBlank() }.distinct().joinToString(", ")
                           }
                           val labels = rankedCandidates.map { placeLabel(it) }.distinct()
-                          if (labels.size > 1) {
+                          if (exactMatches.isEmpty() || labels.size > 1) {
                               message = "I found more than one place matching $city: " +
                                   labels.take(5).joinToString("; ") +
                                   ". Please ask again and include the state or country."
