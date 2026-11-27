@@ -699,6 +699,7 @@ jobs:
               raise SystemExit('Could not safely locate MainActivity class boundary')
           method = '''    private fun askJarvisAI(question: String) {
               statusText = "Contacting JARVIS AI…"
+              val conversationSnapshot = historyItems.toList()
               Thread {
                   var answer = "I could not connect to my AI service. Check your internet connection."
                   var connection: HttpURLConnection? = null
@@ -711,7 +712,7 @@ jobs:
                           setRequestProperty("Authorization", "Bearer " + JarvisConfig.CLIENT_TOKEN)
                           setRequestProperty("Content-Type", "application/json; charset=utf-8")
                       }
-                      val messages = JSONArray().put(JSONObject().put("role", "user").put("content", question))
+                      val messages = JarvisConversationContext.buildMessages(conversationSnapshot, question)
                       val payload = JSONObject().put("messages", messages).toString()
                       connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
                       val code = connection.responseCode
@@ -2538,6 +2539,67 @@ jobs:
           path.write_text(s)
           print("Region hints now filter geocoding candidates; unmatched hints cannot fall back to a wrong country.")
           PY
+
+      - name: Add JARVIS conversation context engine
+        run: |
+          cat > "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/JarvisConversationContext.kt" <<'KOTLIN'
+          package com.jps.jarvis
+
+          import org.json.JSONArray
+          import org.json.JSONObject
+
+          /**
+           * Builds a bounded, chronological conversation context for online AI requests.
+           * The app keeps the full local history; only the most recent eight complete
+           * user/assistant turns are sent with the current text request.
+           */
+          object JarvisConversationContext {
+              private const val MAX_CONTEXT_TURNS = 8
+
+              private const val SYSTEM_GUIDANCE = """
+          You are JARVIS, a capable personal AI assistant.
+          Understand the user's meaning rather than responding to isolated keywords.
+          Use the recent conversation to interpret short replies and follow-up questions.
+          Keep the active topic when the user answers a clarification question.
+          If essential information is missing or a result is uncertain, ask a concise clarification.
+          Never invent live data, claim an action succeeded when it did not, or pretend to have used a tool.
+          Be direct, useful, and natural. Do not expose internal reasoning.
+          """
+
+              fun buildMessages(history: List<String>, currentInput: String): JSONArray {
+                  val messages = JSONArray()
+                  messages.put(
+                      JSONObject()
+                          .put("role", "system")
+                          .put("content", SYSTEM_GUIDANCE.trim())
+                  )
+
+                  val turns = history.asReversed().mapNotNull { parseTurn(it) }.takeLast(MAX_CONTEXT_TURNS)
+                  for (turn in turns) {
+                      messages.put(JSONObject().put("role", "user").put("content", turn.first))
+                      messages.put(JSONObject().put("role", "assistant").put("content", turn.second))
+                  }
+
+                  messages.put(JSONObject().put("role", "user").put("content", currentInput.trim()))
+                  return messages
+              }
+
+              private fun parseTurn(entry: String): Pair<String, String>? {
+                  val userMarker = "\\nYou: "
+                  val assistantMarker = "\\nJARVIS: "
+                  val userStart = entry.indexOf(userMarker)
+                  if (userStart < 0) return null
+                  val assistantStart = entry.indexOf(assistantMarker, userStart + userMarker.length)
+                  if (assistantStart < 0) return null
+
+                  val userText = entry.substring(userStart + userMarker.length, assistantStart).trim()
+                  val assistantText = entry.substring(assistantStart + assistantMarker.length).trim()
+                  if (userText.isBlank() || assistantText.isBlank()) return null
+                  return userText to assistantText
+              }
+          }
+          KOTLIN
+          echo "Bounded JARVIS conversation context engine added."
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
