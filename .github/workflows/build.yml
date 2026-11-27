@@ -2898,21 +2898,19 @@ jobs:
           if s.count(old_sig) != 1:
               raise SystemExit("Could not uniquely locate conversation context method")
           s = s.replace(old_sig, new_sig, 1)
-          anchor = '                  )\n\n                  val turns ='
-          addition = '''                  )
+          anchor = "val turns = history.asReversed()"
+          addition = '''if (taskSummary.isNotBlank()) {
+                      messages.put(
+                          JSONObject()
+                              .put("role", "system")
+                              .put("content", "Current task context for interpreting follow-ups: " + taskSummary +
+                                  ". Treat this as context only; do not claim any step ran unless a tool result confirms it.")
+                      )
+                  }
 
-                          if (taskSummary.isNotBlank()) {
-                              messages.put(
-                                  JSONObject()
-                                      .put("role", "system")
-                                      .put("content", "Current task context for interpreting follow-ups: " + taskSummary +
-                                          ". Treat this as context only; do not claim any step ran unless a tool result confirms it.")
-                              )
-                          }
-
-                          val turns ='''
+                  val turns = history.asReversed()'''
           if s.count(anchor) != 1:
-              raise SystemExit("Could not locate conversation context insertion point")
+              raise SystemExit("Could not uniquely locate conversation turn assembly")
           s = s.replace(anchor, addition, 1)
           context_file.write_text(s)
 
