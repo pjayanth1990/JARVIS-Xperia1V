@@ -2922,7 +2922,73 @@ jobs:
               raise SystemExit("Could not uniquely locate intent context call")
           s = s.replace(old_call, new_call, 1)
 
-          anchor = '              val clarification = data.optString("clarification").trim()'
+          import re
+          pattern = r'(?m)^[ \\t]*val clarification = data\\.optString\\("clarification"\\)\\.trim\\(\\)[ \\t]*
+
+          old_prompt = '                          pendingWeatherCity = true\n                          val message = "Which city should I check the weather for?"'
+          new_prompt = '                          pendingWeatherCity = true\n                          val message = "Which city should I check the weather for?"\n                          JarvisTaskState.awaitInput(this, message)'
+          if s.count(old_prompt) != 1:
+              raise SystemExit("Could not locate weather clarification state")
+          s = s.replace(old_prompt, new_prompt, 1)
+
+          main_file.write_text(s)
+          print("Added allow-listed capability metadata, persistent active-task state, and task-aware intent context.")
+          PY
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Build JARVIS APK
+        run: |
+          cd "$PROJECT_DIR"
+          gradle assembleDebug
+
+      - name: Sign APK with permanent JARVIS key
+        env:
+          JARVIS_KEYSTORE_BASE64: ${{ secrets.JARVIS_KEYSTORE_BASE64 }}
+          JARVIS_STORE_PASSWORD: ${{ secrets.JARVIS_STORE_PASSWORD }}
+          JARVIS_KEY_PASSWORD: ${{ secrets.JARVIS_KEY_PASSWORD }}
+        run: |
+          set -e
+          umask 077
+          python3 - <<'PY'
+          import base64
+          import os
+          import re
+          raw = os.environ["JARVIS_KEYSTORE_BASE64"]
+          cleaned = re.sub(r"[^A-Za-z0-9+/=]", "", raw)
+          try:
+              data = base64.b64decode(cleaned, validate=True)
+          except Exception as exc:
+              raise SystemExit("JARVIS keystore secret is not valid base64: " + str(exc))
+          if len(data) < 100:
+              raise SystemExit("Decoded JARVIS keystore is unexpectedly small; check the repository secret")
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "jarvis-release.jks"), "wb") as f:
+              f.write(data)
+          PY
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks "$RUNNER_TEMP/jarvis-release.jks" \
+            --ks-key-alias jarvis \
+            --ks-pass env:JARVIS_STORE_PASSWORD \
+            --key-pass env:JARVIS_KEY_PASSWORD \
+            --out "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug-signed.apk" \
+            "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug-signed.apk"
+          rm -f "$RUNNER_TEMP/jarvis-release.jks"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-Xperia1V-APK
+          path: '**/build/outputs/apk/debug/app-debug-signed.apk'
+          if-no-files-found: error
+
+          matches = list(re.finditer(pattern, s))
+          if len(matches) != 1:
+              raise SystemExit("Expected exactly one intent dispatch insertion point; found " + str(len(matches)))
+          anchor = matches[0].group(0)
           addition = anchor + '''
           
                       if (!JarvisCapabilityRegistry.isKnown(intent)) {
@@ -2942,9 +3008,7 @@ jobs:
                       if (intent != "general" && intent != "clarify") {
                           JarvisTaskState.capture(this, intent, raw, entities)
                       }'''
-          if anchor not in s:
-              raise SystemExit("Could not locate intent dispatch validation point")
-          s = s.replace(anchor, addition, 1)
+          s = s[:matches[0].start()] + addition + s[matches[0].end():]
 
           old_prompt = '                          pendingWeatherCity = true\n                          val message = "Which city should I check the weather for?"'
           new_prompt = '                          pendingWeatherCity = true\n                          val message = "Which city should I check the weather for?"\n                          JarvisTaskState.awaitInput(this, message)'
