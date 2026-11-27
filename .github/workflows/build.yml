@@ -2601,6 +2601,167 @@ jobs:
           KOTLIN
           echo "Bounded JARVIS conversation context engine added."
 
+      - name: Add structured JARVIS intent router
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+          old = "    private fun handleLocalCommand(raw: String) {"
+          if s.count(old) != 1:
+              raise SystemExit("Could not uniquely locate the existing command handler")
+          s = s.replace(old, "    private fun handleClassifiedLocalCommand(raw: String) {", 1)
+
+          anchor = "    private fun handleClassifiedLocalCommand(raw: String) {"
+          if s.count(anchor) != 1:
+              raise SystemExit("Could not locate renamed command handler")
+          methods = r'''    /**
+           * Online requests are classified centrally before JARVIS selects a capability.
+           * Strictly local commands and an active weather-city clarification remain offline.
+           */
+          private fun handleLocalCommand(raw: String) {
+              val command = raw.trim().lowercase(Locale.ROOT)
+              if (command.isBlank()) return
+              if (pendingWeatherCity || isKnownOfflineCommand(command)) {
+                  handleClassifiedLocalCommand(raw)
+                  return
+              }
+              understandAndRoute(raw)
+          }
+
+          private fun isKnownOfflineCommand(command: String): Boolean {
+              return command == "hello" || command == "hi jarvis" ||
+                  command.contains("stop listening") ||
+                  command.matches(Regex(".*\\b(what time is it|tell me the time|current time|time)\\b.*")) ||
+                  command.matches(Regex(".*\\b(what is the date|what's the date|today's date|what day is it)\\b.*")) ||
+                  command.contains("open settings") || command.contains("open camera") ||
+                  command.contains("open wifi") || command.contains("wi-fi settings") ||
+                  command.contains("wifi settings") || command.contains("bluetooth settings") ||
+                  command.contains("display settings") || command.contains("screen settings") ||
+                  command.contains("volume up") || command.contains("increase volume") ||
+                  command.contains("volume down") || command.contains("decrease volume") ||
+                  command.contains("battery")
+          }
+
+          private fun understandAndRoute(raw: String) {
+              statusText = "Understanding your request…"
+              val historySnapshot = historyItems.toList()
+              Thread {
+                  var result: JSONObject? = null
+                  var failure = "I could not reach JARVIS intent understanding. Please check your connection and try again."
+                  var connection: HttpURLConnection? = null
+                  try {
+                      connection = (URL(JarvisConfig.WORKER_URL + "/intent").openConnection() as HttpURLConnection).apply {
+                          requestMethod = "POST"
+                          connectTimeout = 15000
+                          readTimeout = 45000
+                          doOutput = true
+                          setRequestProperty("Authorization", "Bearer " + JarvisConfig.CLIENT_TOKEN)
+                          setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                      }
+                      val messages = JarvisConversationContext.buildMessages(historySnapshot, raw)
+                      val payload = JSONObject().put("messages", messages).put("input", raw).toString()
+                      connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                      val code = connection.responseCode
+                      val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                      val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                      if (code !in 200..299) {
+                          throw IllegalStateException("Intent endpoint returned HTTP $code: " + JSONObject(body).optString("error"))
+                      }
+                      result = JSONObject(body)
+                  } catch (e: Exception) {
+                      android.util.Log.e("JARVIS", "Intent understanding failed", e)
+                      failure = if (e.message?.contains("HTTP 404") == true) {
+                          "JARVIS intent service is not installed on the Cloudflare Worker yet. Update the Worker and try again."
+                      } else failure
+                  } finally {
+                      connection?.disconnect()
+                  }
+
+                  runOnUiThread {
+                      if (isFinishing || isDestroyed) return@runOnUiThread
+                      if (result == null) {
+                          reply = failure
+                          statusText = "Intent service unavailable"
+                          speak(failure)
+                          return@runOnUiThread
+                      }
+                      dispatchUnderstoodIntent(raw, result!!)
+                  }
+              }.start()
+          }
+
+          private fun dispatchUnderstoodIntent(raw: String, data: JSONObject) {
+              val intent = data.optString("intent", "clarify").lowercase(Locale.ROOT)
+              val confidence = data.optDouble("confidence", 0.0).coerceIn(0.0, 1.0)
+              val entities = data.optJSONObject("entities") ?: JSONObject()
+              val clarification = data.optString("clarification").trim()
+
+              if (confidence < 0.55 && intent != "general") {
+                  val message = clarification.ifBlank {
+                      "I’m not fully sure what you want me to do. Could you rephrase that?"
+                  }
+                  reply = message
+                  statusText = "Please clarify"
+                  speak(message)
+                  return
+              }
+
+              when (intent) {
+                  "weather" -> {
+                      val city = entities.optString("city").trim().ifBlank { extractWeatherCity(raw) }
+                      if (city.isBlank()) {
+                          pendingWeatherCity = true
+                          val message = "Which city should I check the weather for?"
+                          reply = message
+                          statusText = "Waiting for city"
+                          speak(message)
+                      } else {
+                          fetchWeatherForCity(city)
+                      }
+                  }
+                  "image_generate" -> {
+                      val prompt = entities.optString("prompt").trim().ifBlank { raw }
+                      askJarvisImage(prompt)
+                  }
+                  "image_edit" -> {
+                      val message = "I understand you want to edit or regenerate an existing image. The current image service can create new images from text, but image editing is not connected yet."
+                      reply = message
+                      statusText = "Image editing not available yet"
+                      speak(message)
+                  }
+                  "navigation" -> {
+                      val message = "I understand this is a navigation request, but map navigation is not connected yet."
+                      reply = message
+                      statusText = "Navigation not connected yet"
+                      speak(message)
+                  }
+                  "clarify" -> {
+                      val message = clarification.ifBlank {
+                          "Could you clarify what you would like me to do?"
+                      }
+                      reply = message
+                      statusText = "Please clarify"
+                      speak(message)
+                  }
+                  "general" -> askJarvisAI(raw)
+                  else -> {
+                      val message = "I could not confidently identify the capability needed for that request. Could you rephrase it?"
+                      reply = message
+                      statusText = "Please clarify"
+                      speak(message)
+                  }
+              }
+          }
+
+          '''
+          s = s.replace(anchor, methods + anchor, 1)
+          path.write_text(s)
+          print("Added central intent classification and explicit intent-to-capability dispatch.")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
