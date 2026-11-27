@@ -2449,6 +2449,96 @@ jobs:
           print("Added progressive city/region geocoding and stopped treating a single non-exact candidate as ambiguous")
           PY
 
+      - name: Prefer region-matched geocoding candidates and reject guesses
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          # When a query contains a city plus a trailing region/country, search the
+          # shorter city name and retain the suffix only if geocoding metadata matches it.
+          anchor = 'val candidates = (0 until results.length()).map { results.getJSONObject(it) }'
+          probe = r"""if (searchText.contains(" ")) {
+                              var probeText = searchText
+                              var probeHint = ""
+                              var regionMatched = false
+                              while (probeText.contains(" ") && !regionMatched) {
+                                  val parts = probeText.split(Regex("\\s+"))
+                                  probeHint = (listOf(parts.last()) + probeHint.split(" ").filter { it.isNotBlank() })
+                                      .joinToString(" ").trim()
+                                  probeText = parts.dropLast(1).joinToString(" ")
+                                  connection?.disconnect()
+                                  val probeEncoded = java.net.URLEncoder.encode(probeText, "UTF-8")
+                                  val probeUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$probeEncoded&count=10&language=en&format=json"
+                                  connection = (URL(probeUrl).openConnection() as HttpURLConnection).apply {
+                                      requestMethod = "GET"
+                                      connectTimeout = 10000
+                                      readTimeout = 15000
+                                      setRequestProperty("Accept", "application/json")
+                                  }
+                                  if (connection.responseCode !in 200..299) continue
+                                  val probeGeo = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                                  val probeResults = probeGeo.optJSONArray("results")
+                                  if (probeResults != null && probeResults.length() > 0) {
+                                      val tokens = probeHint.split(Regex("\\s+")).filter { it.isNotBlank() }
+                                      val matchesRegion = (0 until probeResults.length()).map { probeResults.getJSONObject(it) }
+                                          .filter { item ->
+                                              val metadata = (item.optString("admin1") + " " + item.optString("country")).lowercase(Locale.ROOT)
+                                              tokens.all { metadata.contains(it.lowercase(Locale.ROOT)) }
+                                          }
+                                      if (matchesRegion.isNotEmpty()) {
+                                          results = probeResults
+                                          searchText = probeText
+                                          regionHint = probeHint
+                                          regionMatched = true
+                                      }
+                                  }
+                              }
+                          }
+                          """
+          if s.count(anchor) != 1:
+              raise SystemExit("Could not uniquely locate weather candidate selection")
+          s = s.replace(anchor, probe + "\n                          " + anchor, 1)
+
+          old = "val scopedCandidates = if (hintTokens.isNotEmpty() && regionMatches.isNotEmpty()) regionMatches else candidates"
+          new = "val scopedCandidates = if (hintTokens.isNotEmpty()) regionMatches else candidates"
+          if s.count(old) != 1:
+              raise SystemExit("Could not uniquely locate region-scoping rule")
+          s = s.replace(old, new, 1)
+
+          old = "val rankedCandidates = if (exactMatches.isNotEmpty()) exactMatches else scopedCandidates"
+          new = "val rankedCandidates = if (exactMatches.isNotEmpty()) exactMatches else if (hintTokens.isNotEmpty()) regionMatches else scopedCandidates"
+          if s.count(old) != 1:
+              raise SystemExit("Could not uniquely locate candidate ranking rule")
+          s = s.replace(old, new, 1)
+
+          old = "if (labels.size > 1) {"
+          new = "if (rankedCandidates.isEmpty() || labels.size > 1) {"
+          if s.count(old) != 1:
+              raise SystemExit("Could not uniquely locate ambiguity guard")
+          s = s.replace(old, new, 1)
+
+          old = '''message = "I found more than one place matching $city: " +
+                                  labels.take(5).joinToString("; ") +
+                                  ". Please ask again and include the state or country."'''
+          new = '''message = if (labels.isEmpty()) {
+                                  "I could not match $city to the supplied region. Please check the city and state or country."
+                              } else {
+                                  "I found more than one place matching $city: " +
+                                      labels.take(5).joinToString("; ") +
+                                      ". Please include the state or country."
+                              }'''
+          if s.count(old) != 1:
+              raise SystemExit("Could not uniquely locate weather clarification message")
+          s = s.replace(old, new, 1)
+
+          path.write_text(s)
+          print("Region hints now filter geocoding candidates; unmatched hints cannot fall back to a wrong country.")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
