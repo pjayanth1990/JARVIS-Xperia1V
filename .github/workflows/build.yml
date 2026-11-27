@@ -2585,8 +2585,8 @@ jobs:
               }
 
               private fun parseTurn(entry: String): Pair<String, String>? {
-                  val userMarker = "\\nYou: "
-                  val assistantMarker = "\\nJARVIS: "
+                  val userMarker = "\nYou: "
+                  val assistantMarker = "\nJARVIS: "
                   val userStart = entry.indexOf(userMarker)
                   if (userStart < 0) return null
                   val assistantStart = entry.indexOf(assistantMarker, userStart + userMarker.length)
