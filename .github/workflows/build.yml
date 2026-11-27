@@ -2312,36 +2312,36 @@ jobs:
           )
           w = w[:handoff.start()] + replacement + w[handoff.end():]
 
-          old_geo = '''                      val encodedCity = java.net.URLEncoder.encode(city, "UTF-8")
-                      val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=1&language=en&format=json"'''
-          new_geo = '''                      val isBengaluru = city.trim().equals("bangalore", ignoreCase = true) ||
-                          city.trim().equals("bengaluru", ignoreCase = true)
-                      val lookupCity = if (isBengaluru) "Bengaluru" else city.trim()
-                      val encodedCity = java.net.URLEncoder.encode(lookupCity, "UTF-8")
-                      val countryFilter = if (isBengaluru) "&countryCode=IN" else ""
-                      val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=10&language=en&format=json$countryFilter"'''
+          old_geo = '''val encodedCity = java.net.URLEncoder.encode(city, "UTF-8")
+val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=1&language=en&format=json"'''
+          new_geo = '''val isBengaluru = city.trim().equals("bangalore", ignoreCase = true) ||
+    city.trim().equals("bengaluru", ignoreCase = true)
+val lookupCity = if (isBengaluru) "Bengaluru" else city.trim()
+val encodedCity = java.net.URLEncoder.encode(lookupCity, "UTF-8")
+val countryFilter = if (isBengaluru) "&countryCode=IN" else ""
+val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=10&language=en&format=json$countryFilter"'''
           if s.count(old_geo) != 1:
               raise SystemExit("Could not uniquely locate weather geocoding URL")
           s = s.replace(old_geo, new_geo, 1)
 
-          old_place = '''                          val place = results.getJSONObject(0)
-                          val latitude = place.getDouble("latitude")'''
-          new_place = '''                          val place = if (isBengaluru) {
-                              (0 until results.length()).map { results.getJSONObject(it) }
-                                  .firstOrNull { it.optString("country_code") == "IN" }
-                                  ?: results.getJSONObject(0)
-                          } else {
-                              results.getJSONObject(0)
-                          }
-                          val latitude = place.getDouble("latitude")'''
+          old_place = '''val place = results.getJSONObject(0)
+val latitude = place.getDouble("latitude")'''
+          new_place = '''val place = if (isBengaluru) {
+    (0 until results.length()).map { results.getJSONObject(it) }
+        .firstOrNull { it.optString("country_code") == "IN" }
+        ?: results.getJSONObject(0)
+} else {
+    results.getJSONObject(0)
+}
+val latitude = place.getDouble("latitude")'''
           if s.count(old_place) != 1:
               raise SystemExit("Could not uniquely locate weather geocoding result selection (matches=" + str(s.count(old_place)) + ")")
           s = s.replace(old_place, new_place, 1)
 
-          old_city = '''                          val resolvedCity = place.optString("name", city)
-                          val country = place.optString("country", "")'''
-          new_city = '''                          val resolvedCity = if (isBengaluru) "Bengaluru" else place.optString("name", city)
-                          val country = place.optString("country", "")'''
+          old_city = '''val resolvedCity = place.optString("name", city)
+val country = place.optString("country", "")'''
+          new_city = '''val resolvedCity = if (isBengaluru) "Bengaluru" else place.optString("name", city)
+val country = place.optString("country", "")'''
           if s.count(old_city) != 1:
               raise SystemExit("Could not uniquely locate resolved weather place")
           s = s.replace(old_city, new_city, 1)
