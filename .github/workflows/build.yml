@@ -2113,7 +2113,7 @@ jobs:
 
           copy_anchor = "    private fun copyResponse() {"
           copy_method = """    private fun copyHistory() {
-                  val text = historyItems.joinToString("\n\n------------------------------\n\n")
+                  val text = historyItems.joinToString(System.lineSeparator() + System.lineSeparator() + "------------------------------" + System.lineSeparator() + System.lineSeparator())
                   if (text.isBlank()) {
                       Toast.makeText(this, "No history to copy", Toast.LENGTH_SHORT).show()
                       return
@@ -2372,10 +2372,6 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-
-      - name: Inspect generated weather Kotlin
-        run: |
-          nl -ba "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/MainActivity.kt" | sed -n '805,830p'
 
       - name: Build JARVIS APK
         run: |
