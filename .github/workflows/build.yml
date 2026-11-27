@@ -2312,13 +2312,6 @@ jobs:
           )
           w = w[:handoff.start()] + replacement + w[handoff.end():]
 
-          detector_start = re.search(r'(?m)^(\\s*)detector\\?\\.start \\{\\n\\s*if \\(!detectionHandled\\) handleDetection\\(\\)\\n\\s*\\}', w)
-          if not detector_start:
-              raise SystemExit("Could not locate detector start call")
-          detector_indent = detector_start.group(1)
-          detector_replacement = detector_start.group(0) + "\\n" + detector_indent + 'getSharedPreferences("jarvis_wake_word", MODE_PRIVATE).edit()\\n' + detector_indent + '    .putString("startup_stage", "detector_running").apply()'
-          w = w[:detector_start.start()] + detector_replacement + w[detector_start.end():]
-
           old_geo = '''                      val encodedCity = java.net.URLEncoder.encode(city, "UTF-8")
                       val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=1&language=en&format=json"'''
           new_geo = '''                      val isBengaluru = city.trim().equals("bangalore", ignoreCase = true) ||
