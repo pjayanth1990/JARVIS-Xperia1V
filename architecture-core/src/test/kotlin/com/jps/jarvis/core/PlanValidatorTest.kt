@@ -49,4 +49,8 @@ class PlanValidatorTest {
         val r=validator.validate(request().copy(locationMode="precise_gps"),plan(emptyList()))
         assertTrue("unsupported_location_mode" in r.errors)
     }
+    @Test fun rejectsOversizedRequestText() {
+        val r=validator.validate(request().copy(inputText="x".repeat(4001)),plan(emptyList()))
+        assertTrue("request_input_too_long" in r.errors)
+    }
 }
