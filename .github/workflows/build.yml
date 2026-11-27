@@ -2385,6 +2385,70 @@ jobs:
           print("Weather clarification now keeps the next spoken city in the pending weather flow")
           PY
 
+      - name: Resolve city plus region hints without losing weather intent
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          s = path.read_text()
+
+          old = "val results = geo.optJSONArray(\"results\")"
+          new = """var results = geo.optJSONArray("results")
+                          var regionHint = ""
+                          var searchText = city.trim()
+                          while ((results == null || results.length() == 0) && searchText.contains(" ")) {
+                              val parts = searchText.split(Regex("\\s+"))
+                              regionHint = (listOf(parts.last()) + regionHint.split(" ").filter { it.isNotBlank() })
+                                  .joinToString(" ").trim()
+                              searchText = parts.dropLast(1).joinToString(" ")
+                              connection?.disconnect()
+                              val fallbackEncoded = java.net.URLEncoder.encode(searchText, "UTF-8")
+                              val fallbackUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$fallbackEncoded&count=10&language=en&format=json"
+                              connection = (URL(fallbackUrl).openConnection() as HttpURLConnection).apply {
+                                  requestMethod = "GET"
+                                  connectTimeout = 10000
+                                  readTimeout = 15000
+                                  setRequestProperty("Accept", "application/json")
+                              }
+                              if (connection.responseCode !in 200..299) break
+                              val fallbackGeo = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                              results = fallbackGeo.optJSONArray("results")
+                          }"""
+          if s.count(old) != 1:
+              raise SystemExit("Could not uniquely locate geocoding results assignment")
+          s = s.replace(old, new, 1)
+
+          old = """val candidates = (0 until results.length()).map { results.getJSONObject(it) }
+                          val exactMatches = candidates.filter {
+                              it.optString("name").trim().equals(city.trim(), ignoreCase = true)
+                          }
+                          val rankedCandidates = if (exactMatches.isNotEmpty()) exactMatches else candidates"""
+          new = """val candidates = (0 until results.length()).map { results.getJSONObject(it) }
+                          val hintTokens = regionHint.split(Regex("\\s+")).filter { it.isNotBlank() }
+                          val regionMatches = candidates.filter { item ->
+                              val metadata = (item.optString("admin1") + " " + item.optString("country")).lowercase(Locale.ROOT)
+                              hintTokens.all { metadata.contains(it.lowercase(Locale.ROOT)) }
+                          }
+                          val scopedCandidates = if (hintTokens.isNotEmpty() && regionMatches.isNotEmpty()) regionMatches else candidates
+                          val exactMatches = scopedCandidates.filter {
+                              it.optString("name").trim().equals(searchText.trim(), ignoreCase = true)
+                          }
+                          val rankedCandidates = if (exactMatches.isNotEmpty()) exactMatches else scopedCandidates"""
+          if s.count(old) != 1:
+              raise SystemExit("Could not uniquely locate candidate ranking logic")
+          s = s.replace(old, new, 1)
+
+          old = "if (exactMatches.isEmpty() || labels.size > 1) {"
+          if s.count(old) != 1:
+              raise SystemExit("Could not uniquely locate ambiguity condition")
+          s = s.replace(old, "if (labels.size > 1) {", 1)
+
+          path.write_text(s)
+          print("Added progressive city/region geocoding and stopped treating a single non-exact candidate as ambiguous")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
