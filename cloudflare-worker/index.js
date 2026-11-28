@@ -40,7 +40,7 @@ async function readJson(request) {
 function validMessages(value) {
   if (!Array.isArray(value) || value.length < 1) return false;
   return value.slice(-MAX_MESSAGES).every(m =>
-    m && ["user", "assistant"].includes(m.role) &&
+    m && ["system", "user", "assistant"].includes(m.role) &&
     typeof m.content === "string" && m.content.trim().length > 0 &&
     m.content.length <= MAX_CONTENT
   );
