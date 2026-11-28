@@ -1,0 +1,6 @@
+name = "jarvis-xperia1v"
+main = "index.js"
+compatibility_date = "2026-11-28"
+
+[ai]
+binding = "AI"
