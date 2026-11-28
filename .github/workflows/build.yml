@@ -8,6 +8,8 @@ on:
     paths:
       - 'JARVIS_Xperia1V_Starter.zip'
       - '.github/workflows/build.yml'
+      - 'architecture-core/**'
+      - 'cloudflare-worker/**'
   workflow_dispatch:
 
 permissions:
