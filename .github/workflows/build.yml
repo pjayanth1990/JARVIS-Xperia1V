@@ -2762,6 +2762,93 @@ jobs:
           print("Added central intent classification and explicit intent-to-capability dispatch.")
           PY
 
+      - name: Route requests through the deployed JARVIS Worker endpoints
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
+          source = path.read_text()
+
+          start = source.find("    private fun handleLocalCommand(raw: String) {")
+          end = source.find("    private fun isKnownOfflineCommand(command: String): Boolean {", start)
+          if start < 0 or end < 0:
+              raise SystemExit("Could not locate the generated JARVIS request router")
+
+          replacement = r'''    private fun handleLocalCommand(raw: String) {
+              val command = raw.trim().lowercase(Locale.ROOT)
+              if (command.isBlank()) return
+
+              // Continue an explicit weather clarification without losing its context.
+              if (pendingWeatherCity) {
+                  handleClassifiedLocalCommand(raw)
+                  return
+              }
+
+              // These capabilities exist in the deployed Worker/app and do not need /intent.
+              if (isWeatherQuestion(command)) {
+                  val city = extractWeatherCity(raw)
+                  if (city.isBlank()) {
+                      pendingWeatherCity = true
+                      val message = "Which city should I check the weather for?"
+                      reply = message
+                      statusText = "Waiting for city"
+                      speak(message)
+                  } else {
+                      fetchWeatherForCity(city)
+                  }
+                  return
+              }
+
+              if (listOf(
+                      "generate image", "generate an image", "create image", "create an image",
+                      "make an image", "make me an image", "create me an image", "generate me an image",
+                      "draw an image", "draw me an image", "draw a picture", "draw me a picture",
+                      "make a picture", "make me a picture", "generate a picture", "generate me a picture",
+                      "create a picture", "create me a picture", "generate a photo", "create a photo"
+                  ).any { command.contains(it) }) {
+                  askJarvisImage(raw)
+                  return
+              }
+
+              // Native phone actions stay local; all other language goes to the working /chat route.
+              if (isKnownOfflineCommand(command)) {
+                  handleClassifiedLocalCommand(raw)
+                  return
+              }
+
+              askJarvisAI(raw)
+          }
+
+          '''
+          source = source[:start] + replacement + source[end:]
+
+          # Remove the dead classifier integration: the deployed Worker has no /intent route.
+          intent_start = source.find("    private fun understandAndRoute(raw: String) {")
+          local_handler = source.find("    private fun handleClassifiedLocalCommand(raw: String) {", intent_start)
+          if intent_start >= 0:
+              if local_handler < 0:
+                  raise SystemExit("Could not safely remove the obsolete /intent router")
+              source = source[:intent_start] + source[local_handler:]
+
+          required = [
+              'JarvisConfig.WORKER_URL + "/chat"',
+              'JarvisConfig.WORKER_URL + "/image"',
+              "if (isWeatherQuestion(command))",
+              "askJarvisAI(raw)",
+              "askJarvisImage(raw)"
+          ]
+          missing = [item for item in required if item not in source]
+          if missing:
+              raise SystemExit("Required JARVIS routes missing after rewrite: " + ", ".join(missing))
+          if 'JarvisConfig.WORKER_URL + "/intent"' in source:
+              raise SystemExit("Obsolete /intent endpoint reference remains")
+
+          path.write_text(source)
+          print("Verified: weather uses city lookup, images use /image, general AI uses /chat, and no /intent dependency remains.")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
