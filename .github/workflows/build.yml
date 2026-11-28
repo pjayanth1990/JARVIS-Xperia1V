@@ -51,6 +51,16 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Found project: $PROJECT_DIR"
 
+      - name: Compile architecture core into Android app
+        run: |
+          CORE_SOURCE="${GITHUB_WORKSPACE}/architecture-core/src/main/kotlin/com/jps/jarvis/core"
+          APP_CORE="$PROJECT_DIR/app/src/main/java/com/jps/jarvis/core"
+          test -d "$CORE_SOURCE" || { echo "Architecture core source missing"; exit 1; }
+          mkdir -p "$APP_CORE"
+          cp "$CORE_SOURCE"/*.kt "$APP_CORE/"
+          echo "Architecture core Kotlin sources included in Android application compilation:"
+          find "$APP_CORE" -maxdepth 1 -name '*.kt' -printf '%f\\n' | sort
+
       - name: Rewrite JARVIS MainActivity
         run: |
           cat > "$PROJECT_DIR/app/src/main/java/com/jps/jarvis/MainActivity.kt" <<'KOTLIN'
