@@ -71,3 +71,46 @@ test("unknown routes return 404", async () => {
   }), env);
   assert.equal(response.status, 404);
 });
+
+test("chat endpoint returns a non-empty reply", async () => {
+  const response = await worker.fetch(request("/chat", {
+    messages: [{ role: "system", content: "You are JARVIS." }, { role: "user", content: "Explain gravity simply." }]
+  }), env);
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(typeof data.reply, "string");
+  assert.ok(data.reply.length > 0);
+});
+
+test("image endpoint returns an image payload", async () => {
+  const response = await worker.fetch(request("/image", { prompt: "A silver futuristic assistant emblem" }), env);
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.status, "success");
+  assert.equal(data.mime_type, "image/jpeg");
+  assert.ok(data.image_base64.length > 0);
+});
+
+test("chat endpoint rejects malformed message roles", async () => {
+  const response = await worker.fetch(request("/chat", {
+    messages: [{ role: "tool", content: "untrusted tool output" }]
+  }), env);
+  assert.equal(response.status, 400);
+});
+
+test("intent endpoint rejects oversized user input", async () => {
+  const input = "x".repeat(2001);
+  const response = await worker.fetch(request("/intent", {
+    input, messages: [{ role: "user", content: "short" }]
+  }), env);
+  assert.equal(response.status, 400);
+});
+
+test("protected routes reject an incorrect token", async () => {
+  const response = await worker.fetch(new Request("https://jarvis.example/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer wrong-token" },
+    body: JSON.stringify({ messages: [{ role: "user", content: "Hello" }] })
+  }), env);
+  assert.equal(response.status, 401);
+});
