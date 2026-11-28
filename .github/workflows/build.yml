@@ -2588,7 +2588,7 @@ jobs:
                           .put("content", SYSTEM_GUIDANCE.trim())
                   )
 
-                  val turns = history.takeLast(MAX_CONTEXT_TURNS).mapNotNull { parseTurn(it) }
+                  val turns = history.asReversed().mapNotNull { parseTurn(it) }.takeLast(MAX_CONTEXT_TURNS)
                   for (turn in turns) {
                       messages.put(JSONObject().put("role", "user").put("content", turn.first))
                       messages.put(JSONObject().put("role", "assistant").put("content", turn.second))
