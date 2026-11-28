@@ -9,7 +9,7 @@ const env = {
     async run(model, input) {
       if (model.includes("glm")) {
         const last = input.messages.at(-1).content;
-        if (last.includes("weather")) {
+        if (last.includes("Latest user input: Weather in Bengaluru")) {
           return { response: '{"intent":"weather","confidence":0.98,"entities":{"city":"Bengaluru"},"clarification":""}' };
         }
         return { response: '{"intent":"general","confidence":0.91,"entities":{},"clarification":""}' };
