@@ -2773,11 +2773,11 @@ jobs:
           path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
           source = path.read_text()
 
-          start_pattern = re.compile(r'(?m)^([ \\t]*)private fun handleLocalCommand\\(raw: String\\) \\{')
+          start_pattern = re.compile(r'(?m)^([ \t]*)private fun handleLocalCommand\(raw: String\) \{')
           start_match = start_pattern.search(source)
           if not start_match:
               raise SystemExit("Could not locate the generated JARVIS request handler")
-          end_pattern = re.compile(r'(?m)^([ \\t]*)private fun isKnownOfflineCommand\\(command: String\\): Boolean \\{')
+          end_pattern = re.compile(r'(?m)^([ \t]*)private fun isKnownOfflineCommand\(command: String\): Boolean \{')
           end_match = end_pattern.search(source, start_match.end())
           if not end_match:
               raise SystemExit("Could not locate the offline-command boundary")
@@ -2829,14 +2829,14 @@ jobs:
               askJarvisAI(raw)
           }
           """
-          replacement = textwrap.indent(textwrap.dedent(body).strip("\\n"), indent) + "\\n\\n"
+          replacement = textwrap.indent(textwrap.dedent(body).strip("\n"), indent) + "\n\n"
           source = source[:start_match.start()] + replacement + source[end_match.start():]
 
-          # The deployed Worker intentionally exposes /chat and /image, not /intent.
-          intent_match = re.search(r'(?m)^([ \\t]*)private fun understandAndRoute\\(raw: String\\) \\{', source)
+          # The deployed Worker exposes /chat and /image, not /intent.
+          intent_match = re.search(r'(?m)^([ \t]*)private fun understandAndRoute\(raw: String\) \{', source)
           if intent_match:
               local_match = re.search(
-                  r'(?m)^([ \\t]*)private fun handleClassifiedLocalCommand\\(raw: String\\) \\{',
+                  r'(?m)^([ \t]*)private fun handleClassifiedLocalCommand\(raw: String\) \{',
                   source[intent_match.end():]
               )
               if not local_match:
