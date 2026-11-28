@@ -2702,12 +2702,91 @@ jobs:
                           speak(failure)
                           return@runOnUiThread
                       }
-                      dispatchUnderstoodIntent(raw, result!!)
+                      executeWithArchitectureCore(raw, result!!)
                   }
               }.start()
           }
 
-          private fun dispatchUnderstoodIntent(raw: String, data: JSONObject) {
+          /**
+           * Every cloud-classified request must pass the shared capability registry,
+           * plan validator and execution engine before an app action is dispatched.
+           */
+          private fun executeWithArchitectureCore(raw: String, data: JSONObject) {
+              val registry = com.jps.jarvis.core.CapabilityRegistry.initial()
+              val requestId = java.util.UUID.randomUUID().toString()
+              val intent = data.optString("intent", "clarify").lowercase(Locale.ROOT)
+              val capability = when (intent) {
+                  "weather" -> "weather.current"
+                  "image_generate" -> "image.generate"
+                  "image_edit" -> "image.edit"
+                  "navigation" -> "navigation.route"
+                  else -> "assistant.answer"
+              }
+              val request = com.jps.jarvis.core.AssistantRequest(
+                  requestId = requestId,
+                  sessionId = "jarvis-android",
+                  inputText = raw,
+                  advertisedCapabilities = registry.advertisedAvailableIds(),
+                  microphoneEnabled = false,
+                  locationMode = "user_supplied_only"
+              )
+              val plan = com.jps.jarvis.core.AssistantPlan(
+                  requestId = requestId,
+                  taskId = java.util.UUID.randomUUID().toString(),
+                  summary = "Handle the user's request",
+                  steps = listOf(
+                      com.jps.jarvis.core.PlannedStep(
+                          stepId = "dispatch-1",
+                          capability = capability
+                      )
+                  )
+              )
+              val bindings = registry.all().filter { it.available }.map { descriptor ->
+                  com.jps.jarvis.core.CapabilityExecutorBinding(
+                      descriptor.id,
+                      com.jps.jarvis.core.CapabilityExecutor { _, _, _ ->
+                          dispatchClassifiedIntent(raw, data)
+                          com.jps.jarvis.core.CapabilityExecutionOutput(
+                              values = mapOf("dispatched" to "true")
+                          )
+                      }
+                  )
+              }
+              val engine = com.jps.jarvis.core.PlanExecutionEngine(registry, bindings)
+              val start = com.jps.jarvis.core.TaskStateMachine.transition(
+                  com.jps.jarvis.core.TaskStatus.PLANNED,
+                  com.jps.jarvis.core.TaskStatus.RUNNING
+              )
+              if (start !is com.jps.jarvis.core.TransitionResult.Accepted) {
+                  val message = "I couldn't safely start that task. Please try again."
+                  reply = message
+                  statusText = "Task could not start"
+                  speak(message)
+                  return
+              }
+              val report = engine.execute(request, plan)
+              com.jps.jarvis.core.TaskStateMachine.transition(
+                  com.jps.jarvis.core.TaskStatus.RUNNING,
+                  report.status
+              )
+              when {
+                  report.status == com.jps.jarvis.core.TaskStatus.SUCCEEDED -> Unit
+                  report.results.any { it.status == com.jps.jarvis.core.StepStatus.UNAVAILABLE } -> {
+                      // Keep the existing honest user-facing explanation for capabilities
+                      // that are registered but not yet implemented on this device.
+                      dispatchClassifiedIntent(raw, data)
+                  }
+                  else -> {
+                      android.util.Log.w("JARVIS", "Core rejected task: " + report.validationErrors.joinToString())
+                      val message = "I couldn't safely process that request. Please try rephrasing it."
+                      reply = message
+                      statusText = "Task validation failed"
+                      speak(message)
+                  }
+              }
+          }
+
+          private fun dispatchClassifiedIntent(raw: String, data: JSONObject) {
               val intent = data.optString("intent", "clarify").lowercase(Locale.ROOT)
               val confidence = data.optDouble("confidence", 0.0).coerceIn(0.0, 1.0)
               val entities = data.optJSONObject("entities") ?: JSONObject()
