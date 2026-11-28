@@ -2767,26 +2767,34 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import os
+          import re
+          import textwrap
 
           path = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/jps/jarvis/MainActivity.kt"
           source = path.read_text()
 
-          start = source.find("    private fun handleLocalCommand(raw: String) {")
-          end = source.find("    private fun isKnownOfflineCommand(command: String): Boolean {", start)
-          if start < 0 or end < 0:
-              raise SystemExit("Could not locate the generated JARVIS request router")
+          start_pattern = re.compile(r'(?m)^([ \\t]*)private fun handleLocalCommand\\(raw: String\\) \\{')
+          start_match = start_pattern.search(source)
+          if not start_match:
+              raise SystemExit("Could not locate the generated JARVIS request handler")
+          end_pattern = re.compile(r'(?m)^([ \\t]*)private fun isKnownOfflineCommand\\(command: String\\): Boolean \\{')
+          end_match = end_pattern.search(source, start_match.end())
+          if not end_match:
+              raise SystemExit("Could not locate the offline-command boundary")
+          indent = start_match.group(1)
 
-          replacement = r'''    private fun handleLocalCommand(raw: String) {
+          body = """
+          private fun handleLocalCommand(raw: String) {
               val command = raw.trim().lowercase(Locale.ROOT)
               if (command.isBlank()) return
 
-              // Continue an explicit weather clarification without losing its context.
+              // Preserve the user's answer when JARVIS is waiting for a weather city.
               if (pendingWeatherCity) {
                   handleClassifiedLocalCommand(raw)
                   return
               }
 
-              // These capabilities exist in the deployed Worker/app and do not need /intent.
+              // Weather is handled locally with the city explicitly supplied by the user.
               if (isWeatherQuestion(command)) {
                   val city = extractWeatherCity(raw)
                   if (city.isBlank()) {
@@ -2801,6 +2809,7 @@ jobs:
                   return
               }
 
+              // Image generation uses the deployed authenticated /image route.
               if (listOf(
                       "generate image", "generate an image", "create image", "create an image",
                       "make an image", "make me an image", "create me an image", "generate me an image",
@@ -2812,25 +2821,28 @@ jobs:
                   return
               }
 
-              // Native phone actions stay local; all other language goes to the working /chat route.
+              // Keep device actions on-device; send all other natural language to /chat.
               if (isKnownOfflineCommand(command)) {
                   handleClassifiedLocalCommand(raw)
                   return
               }
-
               askJarvisAI(raw)
           }
+          """
+          replacement = textwrap.indent(textwrap.dedent(body).strip("\\n"), indent) + "\\n\\n"
+          source = source[:start_match.start()] + replacement + source[end_match.start():]
 
-          '''
-          source = source[:start] + replacement + source[end:]
-
-          # Remove the dead classifier integration: the deployed Worker has no /intent route.
-          intent_start = source.find("    private fun understandAndRoute(raw: String) {")
-          local_handler = source.find("    private fun handleClassifiedLocalCommand(raw: String) {", intent_start)
-          if intent_start >= 0:
-              if local_handler < 0:
-                  raise SystemExit("Could not safely remove the obsolete /intent router")
-              source = source[:intent_start] + source[local_handler:]
+          # The deployed Worker intentionally exposes /chat and /image, not /intent.
+          intent_match = re.search(r'(?m)^([ \\t]*)private fun understandAndRoute\\(raw: String\\) \\{', source)
+          if intent_match:
+              local_match = re.search(
+                  r'(?m)^([ \\t]*)private fun handleClassifiedLocalCommand\\(raw: String\\) \\{',
+                  source[intent_match.end():]
+              )
+              if not local_match:
+                  raise SystemExit("Could not safely remove the obsolete /intent classifier")
+              cut = intent_match.end() + local_match.start()
+              source = source[:intent_match.start()] + source[cut:]
 
           required = [
               'JarvisConfig.WORKER_URL + "/chat"',
@@ -2841,12 +2853,12 @@ jobs:
           ]
           missing = [item for item in required if item not in source]
           if missing:
-              raise SystemExit("Required JARVIS routes missing after rewrite: " + ", ".join(missing))
+              raise SystemExit("Required JARVIS routes missing: " + ", ".join(missing))
           if 'JarvisConfig.WORKER_URL + "/intent"' in source:
               raise SystemExit("Obsolete /intent endpoint reference remains")
 
           path.write_text(source)
-          print("Verified: weather uses city lookup, images use /image, general AI uses /chat, and no /intent dependency remains.")
+          print("Verified routing: city weather, image generation, local commands, and general AI chat.")
           PY
 
       - name: Set up Gradle
