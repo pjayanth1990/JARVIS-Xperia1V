@@ -26,4 +26,5 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID repository secret"; exit 1; }
           test -n "$JARVIS_CLIENT_TOKEN" || { echo "Missing JARVIS_CLIENT_TOKEN repository secret"; exit 1; }
           npm install --no-save wrangler
-          npx wrangler deploy index.js --name jarvis-xperia1v --compatibility-date 2026-11-28 --var JARVIS_CLIENT_TOKEN:"$JARVIS_CLIENT_TOKEN"
+          printf "%s" "$JARVIS_CLIENT_TOKEN" | npx wrangler secret put JARVIS_CLIENT_TOKEN
+          npx wrangler deploy
