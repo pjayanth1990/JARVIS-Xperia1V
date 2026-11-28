@@ -3,6 +3,8 @@ name: Build JARVIS APK
 
 on:
   push:
+    branches:
+      - architecture/core-foundation
     paths:
       - 'JARVIS_Xperia1V_Starter.zip'
       - '.github/workflows/build.yml'
