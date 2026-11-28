@@ -1,0 +1,46 @@
+name: JARVIS Android Source Audit
+
+on:
+  push:
+    branches: [architecture/core-foundation]
+    paths: ['.github/workflows/android-source-audit.yml', 'JARVIS_Xperia1V_Starter.zip']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Extract and inspect Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p extracted
+          unzip -q JARVIS_Xperia1V_Starter.zip -d extracted
+          PROJECT_DIR="$(find extracted -name settings.gradle.kts -print -quit | xargs dirname)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR"
+          echo
+          echo "=== PROJECT FILE TREE ==="
+          find "$PROJECT_DIR" -maxdepth 7 -type f | sort
+          echo
+          for f in settings.gradle.kts build.gradle.kts gradle.properties app/build.gradle.kts app/src/main/AndroidManifest.xml; do
+            if [ -f "$PROJECT_DIR/$f" ]; then
+              echo "=== $f ==="
+              sed -n '1,260p' "$PROJECT_DIR/$f"
+            fi
+          done
+          echo
+          echo "=== KOTLIN SOURCE INVENTORY ==="
+          find "$PROJECT_DIR" -type f \( -name '*.kt' -o -name '*.java' \) -print | sort
+          echo
+          echo "=== INTEGRATION / PRIVACY SYMBOL SCAN ==="
+          grep -RInE '(/intent|/chat|/image|SpeechRecognizer|WakeWordService|microphone|MICROPHONE|location|SharedPreferences|conversation|history)' "$PROJECT_DIR/app/src" --include='*.kt' --include='*.xml' | head -n 500 || true
