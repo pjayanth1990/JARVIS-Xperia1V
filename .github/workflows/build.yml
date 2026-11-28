@@ -2771,7 +2771,8 @@ jobs:
               )
               when {
                   report.status == com.jps.jarvis.core.TaskStatus.SUCCEEDED -> Unit
-                  report.results.any { it.status == com.jps.jarvis.core.StepStatus.UNAVAILABLE } -> {
+                  report.results.any { it.status == com.jps.jarvis.core.StepStatus.UNAVAILABLE } ||
+                      report.validationErrors.any { it.startsWith("capability_unavailable:") } -> {
                       // Keep the existing honest user-facing explanation for capabilities
                       // that are registered but not yet implemented on this device.
                       dispatchClassifiedIntent(raw, data)
